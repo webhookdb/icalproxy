@@ -1,0 +1,14 @@
+services:
+  db:
+    image: postgres:17
+    networks:
+      - ical-proxy
+    ports:
+      - "127.0.0.1:18042:5432"
+    environment:
+      POSTGRES_USER: 'ical'
+      POSTGRES_PASSWORD: 'ical'
+      POSTGRES_DB: 'ical'
+
+networks:
+  ical-proxy:

@@ -3,10 +3,12 @@ package cmd
 import (
 	"errors"
 	"fmt"
+	"github.com/labstack/echo/v4"
 	"github.com/lithictech/go-aperitif/v2/api"
 	"github.com/lithictech/go-aperitif/v2/logctx"
 	"github.com/urfave/cli/v2"
 	"github.com/webhookdb/icalproxy/config"
+	"github.com/webhookdb/icalproxy/db"
 	"github.com/webhookdb/icalproxy/internal"
 	"github.com/webhookdb/icalproxy/server"
 	"net/http"
@@ -20,6 +22,9 @@ var serverCmd = &cli.Command{
 	},
 	Action: func(c *cli.Context) error {
 		ctx, appGlobals := loadAppCtx(loadCtx(c, loadConfig(c)))
+		if err := db.Migrate(ctx, appGlobals.DB); err != nil {
+			return internal.EWrap(err, "migrating schema")
+		}
 		logger := logctx.Logger(ctx)
 		e := api.New(api.Config{
 			Logger:                 logger,
@@ -32,6 +37,7 @@ var serverCmd = &cli.Command{
 				"message":         "icalproxy",
 			},
 		})
+		e.HTTPErrorHandler = errorHandler(e)
 
 		if err := server.Register(ctx, e, appGlobals); err != nil {
 			return internal.EWrap(err, "failed to register v1 endpoints")
@@ -44,4 +50,29 @@ var serverCmd = &cli.Command{
 		}
 		return nil
 	},
+}
+
+func errorHandler(e *echo.Echo) echo.HTTPErrorHandler {
+	return func(err error, c echo.Context) {
+		apiErr, ok := err.(api.Error)
+		if !ok {
+			e.DefaultHTTPErrorHandler(err, c)
+			return
+		}
+		// This is copied from echo's default error handler.
+		if !c.Response().Committed {
+			noContent := c.Request().Method == http.MethodHead ||
+				(apiErr.HTTPStatus >= 300 && apiErr.HTTPStatus < 400) ||
+				apiErr.HTTPStatus == http.StatusNoContent
+			var err error
+			if noContent {
+				err = c.NoContent(apiErr.HTTPStatus)
+			} else {
+				err = c.JSON(apiErr.HTTPStatus, apiErr)
+			}
+			if err != nil {
+				api.Logger(c).With("error", err).Error("http_error_handler_error")
+			}
+		}
+	}
 }
