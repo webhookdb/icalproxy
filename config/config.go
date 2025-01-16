@@ -17,6 +17,12 @@ var BuildSha string
 var ReleaseVersion string
 var UserAgent = "github.com/webhookdb/icalproxy"
 
+// IcalBaseTTL is a general purpose slow TTL we use as a fallback
+// for calendars that don't match more specific, faster TTLs.
+// This is a constant, not configurable, since we don't want it to change
+// and isn't really at the discretion of the operator.
+const IcalBaseTTL = time.Duration(2 * time.Hour)
+
 type Config struct {
 	ApiKey        string        `env:"API_KEY"`
 	DatabaseUrl   string        `env:"DATABASE_URL, default=postgres://ical:ical@localhost:18042/ical?sslmode=disable"`
@@ -25,11 +31,16 @@ type Config struct {
 	LogFormat     string        `env:"LOG_FORMAT"`
 	LogLevel      string        `env:"LOG_LEVEL, default=info"`
 	Port          int           `env:"PORT, default=18041"`
-	IcalBaseTTL   time.Duration `env:"ICAL_BASE_TTL, default=2h"`
 	IcalICloudTTL time.Duration `env:"ICAL_ICLOUD_TTL, default=5m"`
 	// Parsed from ICAL_TTL_ vars.
 	// See README for details.
-	IcalTTLs map[string]time.Duration
+	IcalTTLMap map[string]time.Duration
+	// Number of feeds that are refreshed at a time before changes are committed to the database.
+	// Smaller pages will see more responsive updates, while larger pages may see better performance.
+	RefreshPageSize int `env:"REFRESH_PAGE_SIZE, default=100"`
+	// How long to wait for an origin server before timing out an ICalendar feed request.
+	// Only used for the refresh routine.
+	RefreshTimeout int `env:"REFRESH_TIMEOUT, default=60"`
 }
 
 func (c Config) NewLogger(fields ...any) (*slog.Logger, error) {
@@ -44,7 +55,10 @@ func LoadConfig() (Config, error) {
 	if err := envconfig.Process(context.Background(), &cfg); err != nil {
 		return cfg, err
 	}
-	cfg.IcalTTLs = make(map[string]time.Duration)
+	cfg.IcalTTLMap = map[string]time.Duration{
+		"":          IcalBaseTTL,
+		"ICLOUDCOM": cfg.IcalICloudTTL,
+	}
 	for _, e := range os.Environ() {
 		parts := strings.SplitN(e, "=", 2)
 		k, v := parts[0], parts[1]
@@ -52,10 +66,10 @@ func LoadConfig() (Config, error) {
 		if strings.HasPrefix(k, "ICAL_TTL_") {
 			d, err := time.ParseDuration(v)
 			if err != nil {
-				return cfg, internal.EWrap(err, "%s is not a valid duration", k)
+				return cfg, internal.ErrWrap(err, "%s is not a valid duration", k)
 			}
 			hostname := strings.ToUpper(k[len("ICAL_TTL_"):])
-			cfg.IcalTTLs[hostname] = d
+			cfg.IcalTTLMap[hostname] = d
 		}
 	}
 	return cfg, nil

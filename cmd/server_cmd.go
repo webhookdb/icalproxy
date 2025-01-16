@@ -10,6 +10,7 @@ import (
 	"github.com/webhookdb/icalproxy/config"
 	"github.com/webhookdb/icalproxy/db"
 	"github.com/webhookdb/icalproxy/internal"
+	"github.com/webhookdb/icalproxy/refresher"
 	"github.com/webhookdb/icalproxy/server"
 	"net/http"
 )
@@ -23,7 +24,7 @@ var serverCmd = &cli.Command{
 	Action: func(c *cli.Context) error {
 		ctx, appGlobals := loadAppCtx(loadCtx(c, loadConfig(c)))
 		if err := db.Migrate(ctx, appGlobals.DB); err != nil {
-			return internal.EWrap(err, "migrating schema")
+			return internal.ErrWrap(err, "migrating schema")
 		}
 		logger := logctx.Logger(ctx)
 		e := api.New(api.Config{
@@ -40,8 +41,10 @@ var serverCmd = &cli.Command{
 		e.HTTPErrorHandler = errorHandler(e)
 
 		if err := server.Register(ctx, e, appGlobals); err != nil {
-			return internal.EWrap(err, "failed to register v1 endpoints")
+			return internal.ErrWrap(err, "failed to register v1 endpoints")
 		}
+
+		refresher.StartScheduler(ctx, appGlobals)
 
 		logger.With("port", appGlobals.Config.Port).InfoContext(ctx, "server_listening")
 		if err := e.Start(fmt.Sprintf(":%d", appGlobals.Config.Port)); err != nil && !errors.Is(err, http.ErrServerClosed) {

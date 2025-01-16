@@ -61,8 +61,17 @@ func FetchContentsAsFeed(db *pgxpool.Pool, ctx context.Context, uri *url.URL) (*
 
 func CommitFeed(db *pgxpool.Pool, ctx context.Context, uri *url.URL, feed *proxy.Feed) error {
 	query := `INSERT INTO icalproxy_feeds_v1 
-    (url, url_host, checked_at, contents, contents_md5, contents_last_modified, contents_size)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)`
+(url, url_host, checked_at, contents, contents_md5, contents_last_modified, contents_size)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
+ON CONFLICT (url) DO UPDATE SET
+	url_host=EXCLUDED.url_host,
+	checked_at=EXCLUDED.checked_at,
+	contents=EXCLUDED.contents,
+	contents_md5=EXCLUDED.contents_md5,
+	contents_last_modified=EXCLUDED.contents_last_modified,
+	contents_size=EXCLUDED.contents_size
+;
+`
 	args := []any{uri.String(), proxy.NormalizeHostname(uri), feed.FetchedAt, feed.Body, feed.MD5, feed.FetchedAt, len(feed.Body)}
 	_, err := db.Exec(ctx, query, args...)
 	if err != nil {

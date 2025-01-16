@@ -18,17 +18,13 @@ import (
 const CalendarContentType = "text/calendar"
 
 // TTLFor returns the TTL for the given url.URL. It uses the hostname
-// to search through config.Config IcalTTLs.
-func TTLFor(uri *url.URL, config config.Config) time.Duration {
-	hostname := uri.Hostname()
-	if strings.HasSuffix(hostname, "icloud.com") {
-		return config.IcalICloudTTL
-	}
+// to search through config.Config IcalTTLMap.
+func TTLFor(uri *url.URL, cfg config.Config) time.Duration {
 	// Given a url hostname of foo.example.org, we want to match against ICAL_TTL_EXAMPLEORG and ICAL_TTL_FOOEXAMPLEORG
 	// Given a url hostname of example.org, we want to match against ICAL_TTL_EXAMPLEORG
 	// So check to see that the url hostname ends with the 'env var hostname'
 	cleanHostname := NormalizeHostname(uri)
-	for envHostname, d := range config.IcalTTLs {
+	for envHostname, d := range cfg.IcalTTLMap {
 		// FOOEXAMPLEORG, EXAMPLEORG, etc check to match they end with EXAMPLEORG
 		if strings.HasSuffix(cleanHostname, envHostname) {
 			return d
@@ -65,7 +61,7 @@ func Fetch(ctx context.Context, url *url.URL) (*Feed, error) {
 	}
 	b, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, internal.EWrap(err, "feed fetch failed reading body")
+		return nil, internal.ErrWrap(err, "feed fetch failed reading body")
 	}
 	if resp.StatusCode != 200 {
 		return nil, &OriginError{
