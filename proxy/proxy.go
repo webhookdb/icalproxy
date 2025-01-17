@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/webhookdb/icalproxy/config"
 	"github.com/webhookdb/icalproxy/internal"
+	"github.com/webhookdb/icalproxy/types"
 	"io"
 	"net/http"
 	"net/url"
@@ -19,14 +20,14 @@ const CalendarContentType = "text/calendar"
 
 // TTLFor returns the TTL for the given url.URL. It uses the hostname
 // to search through config.Config IcalTTLMap.
-func TTLFor(uri *url.URL, cfg config.Config) time.Duration {
+func TTLFor(uri *url.URL, cfg config.Config) types.TTL {
 	// Given a url hostname of foo.example.org, we want to match against ICAL_TTL_EXAMPLEORG and ICAL_TTL_FOOEXAMPLEORG
 	// Given a url hostname of example.org, we want to match against ICAL_TTL_EXAMPLEORG
 	// So check to see that the url hostname ends with the 'env var hostname'
 	cleanHostname := NormalizeHostname(uri)
 	for envHostname, d := range cfg.IcalTTLMap {
 		// FOOEXAMPLEORG, EXAMPLEORG, etc check to match they end with EXAMPLEORG
-		if strings.HasSuffix(cleanHostname, envHostname) {
+		if strings.HasSuffix(string(cleanHostname), string(envHostname)) {
 			return d
 		}
 	}
@@ -35,9 +36,9 @@ func TTLFor(uri *url.URL, cfg config.Config) time.Duration {
 
 // NormalizeHostname returns the url's hostname, normalized for TTL matches.
 // So https://example.org/foo would become "EXAMPLEORG", etc.
-func NormalizeHostname(u *url.URL) string {
+func NormalizeHostname(u *url.URL) types.NormalizedHostname {
 	h := strings.ToUpper(cleanHostname.ReplaceAllString(u.Hostname(), ""))
-	return h
+	return types.NormalizedHostname(h)
 }
 
 var cleanHostname = regexp.MustCompile("[^a-zA-Z0-9]")

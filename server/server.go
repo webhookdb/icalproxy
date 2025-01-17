@@ -121,7 +121,7 @@ func (h *endpointHandler) serveIfTtl(ctx context.Context) (bool, error) {
 		return false, nil
 	}
 	timeSinceFetch := time.Now().Sub(h.row.ContentsLastModified)
-	maxTtl := proxy.TTLFor(h.url, h.ag.Config)
+	maxTtl := time.Duration(proxy.TTLFor(h.url, h.ag.Config))
 	if timeSinceFetch > maxTtl {
 		feed, err := db.FetchContentsAsFeed(h.ag.DB, ctx, h.url)
 		if err != nil {
