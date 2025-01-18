@@ -2,7 +2,7 @@ module github.com/webhookdb/icalproxy
 
 go 1.23
 
-// +heroku install ./heroku
+// +heroku install ./runwithmetrics
 
 require (
 	github.com/heroku/x v0.4.1

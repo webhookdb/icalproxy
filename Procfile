@@ -1,1 +1,1 @@
-web: heroku server
+web: runwithmetrics server

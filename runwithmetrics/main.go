@@ -7,6 +7,6 @@ import (
 )
 
 func main() {
-	fmt.Println("starting_heroku")
+	fmt.Println("starting_with_metrics")
 	cmd.Execute()
 }
