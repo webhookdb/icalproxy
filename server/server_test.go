@@ -14,9 +14,9 @@ import (
 	"github.com/webhookdb/icalproxy/appglobals"
 	"github.com/webhookdb/icalproxy/config"
 	"github.com/webhookdb/icalproxy/db"
+	"github.com/webhookdb/icalproxy/feed"
 	"github.com/webhookdb/icalproxy/fp"
 	"github.com/webhookdb/icalproxy/internal"
-	"github.com/webhookdb/icalproxy/proxy"
 	"github.com/webhookdb/icalproxy/server"
 	"github.com/webhookdb/icalproxy/types"
 	"net/url"
@@ -124,7 +124,7 @@ var _ = Describe("server", func() {
 		})
 		Describe("with a cached feed", func() {
 			BeforeEach(func() {
-				Expect(db.CommitFeed(ag.DB, ctx, originFeedUri, proxy.NewFeed(
+				Expect(db.CommitFeed(ag.DB, ctx, originFeedUri, feed.New(
 					[]byte("VEVENT"),
 					time.Now(),
 				))).To(Succeed())
@@ -159,7 +159,7 @@ var _ = Describe("server", func() {
 				Expect(rr).To(HaveResponseCode(200))
 			})
 			It("fetches from origin and serves from cache if the TTL has expired", func() {
-				Expect(db.CommitFeed(ag.DB, ctx, originFeedUri, proxy.NewFeed(
+				Expect(db.CommitFeed(ag.DB, ctx, originFeedUri, feed.New(
 					[]byte("VERSION1"),
 					time.Now().Add(-5*time.Hour),
 				))).To(Succeed())

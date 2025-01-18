@@ -7,7 +7,7 @@ import (
 	"github.com/lithictech/go-aperitif/v2/api"
 	"github.com/webhookdb/icalproxy/appglobals"
 	"github.com/webhookdb/icalproxy/db"
-	"github.com/webhookdb/icalproxy/proxy"
+	"github.com/webhookdb/icalproxy/feed"
 	"github.com/webhookdb/icalproxy/types"
 	"net/http"
 	"net/url"
@@ -64,12 +64,12 @@ func handle(ag *appglobals.AppGlobals) echo.HandlerFunc {
 			return err
 		}
 		// We discover we need to fetch the feed, store it in the database.
-		feed, err := eh.refetchAndCommit(ctx)
+		fd, err := eh.refetchAndCommit(ctx)
 		if err != nil {
 			return err
 		}
 		// Serve the HTTP response
-		return eh.serveResponse(ctx, feed)
+		return eh.serveResponse(ctx, fd)
 	}
 }
 
@@ -120,47 +120,47 @@ func (h *endpointHandler) serveIfTtl(ctx context.Context) (bool, error) {
 		return false, nil
 	}
 	timeSinceFetch := time.Now().Sub(h.row.ContentsLastModified)
-	maxTtl := time.Duration(proxy.TTLFor(h.url, h.ag.Config.IcalTTLMap))
+	maxTtl := time.Duration(feed.TTLFor(h.url, h.ag.Config.IcalTTLMap))
 	if timeSinceFetch <= maxTtl {
-		feed, err := db.FetchContentsAsFeed(h.ag.DB, ctx, h.url)
+		fd, err := db.FetchContentsAsFeed(h.ag.DB, ctx, h.url)
 		if err != nil {
 			return false, ErrFallback
 		}
 		h.c.Response().Header().Set("Ical-Proxy-Cached", "true")
-		return true, h.serveResponse(ctx, feed)
+		return true, h.serveResponse(ctx, fd)
 	}
 	return false, nil
 }
 
-func (h *endpointHandler) refetchAndCommit(ctx context.Context) (*proxy.Feed, error) {
-	feed, err := proxy.Fetch(ctx, h.url)
+func (h *endpointHandler) refetchAndCommit(ctx context.Context) (*feed.Feed, error) {
+	fd, err := feed.Fetch(ctx, h.url)
 	if err != nil {
 		// If the fetch fails, nothing we can do about it.
 		return nil, err
 	}
-	if err := db.CommitFeed(h.ag.DB, ctx, h.url, feed); err != nil {
+	if err := db.CommitFeed(h.ag.DB, ctx, h.url, fd); err != nil {
 		// log error
 	}
-	return feed, err
+	return fd, err
 }
 
-func (h *endpointHandler) serveResponse(_ context.Context, feed *proxy.Feed) error {
-	h.c.Response().Header().Set("Content-Type", proxy.CalendarContentType)
-	h.c.Response().Header().Set("Content-Length", strconv.Itoa(len(feed.Body)))
-	h.c.Response().Header().Set("Etag", string(feed.MD5))
-	h.c.Response().Header().Set("Last-Modified", types.FormatHttpTime(feed.FetchedAt))
+func (h *endpointHandler) serveResponse(_ context.Context, fd *feed.Feed) error {
+	h.c.Response().Header().Set("Content-Type", feed.CalendarContentType)
+	h.c.Response().Header().Set("Content-Length", strconv.Itoa(len(fd.Body)))
+	h.c.Response().Header().Set("Etag", string(fd.MD5))
+	h.c.Response().Header().Set("Last-Modified", types.FormatHttpTime(fd.FetchedAt))
 	if h.c.Request().Method == http.MethodHead {
 		h.c.Response().WriteHeader(200)
 		return nil
 	}
-	return h.c.Blob(200, proxy.CalendarContentType, feed.Body)
+	return h.c.Blob(200, feed.CalendarContentType, fd.Body)
 }
 
 func (h *endpointHandler) runAsProxy(ctx context.Context) error {
 	if err := h.extractUrl(); err != nil {
 		return err
 	}
-	resp, err := proxy.Fetch(ctx, h.url)
+	resp, err := feed.Fetch(ctx, h.url)
 	if err != nil {
 		return err
 	}

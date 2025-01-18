@@ -1,4 +1,4 @@
-package proxy_test
+package feed_test
 
 import (
 	"context"
@@ -6,20 +6,20 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/ghttp"
+	"github.com/webhookdb/icalproxy/feed"
 	"github.com/webhookdb/icalproxy/fp"
-	"github.com/webhookdb/icalproxy/proxy"
 	"github.com/webhookdb/icalproxy/types"
 	"net/url"
 	"testing"
 	"time"
 )
 
-func TestDB(t *testing.T) {
+func TestFeed(t *testing.T) {
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "proxy package Suite")
+	RunSpecs(t, "feed package Suite")
 }
 
-var _ = Describe("proxy", func() {
+var _ = Describe("feed", func() {
 	ctx, _ := logctx.WithNullLogger(context.Background())
 
 	Describe("TTLFor", func() {
@@ -29,15 +29,15 @@ var _ = Describe("proxy", func() {
 			"INFREQUENTCOM":   types.TTL(time.Hour * 20),
 		}
 		It("returns the ttl for a configured hostname", func() {
-			Expect(proxy.TTLFor(fp.Must(url.Parse("https://webhookdb.com/feed.ics")), ttlmap)).To(BeEquivalentTo(time.Minute * 15))
-			Expect(proxy.TTLFor(fp.Must(url.Parse("https://otherthing.webhookdb.com/feed.ics")), ttlmap)).To(BeEquivalentTo(time.Minute * 15))
+			Expect(feed.TTLFor(fp.Must(url.Parse("https://webhookdb.com/feed.ics")), ttlmap)).To(BeEquivalentTo(time.Minute * 15))
+			Expect(feed.TTLFor(fp.Must(url.Parse("https://otherthing.webhookdb.com/feed.ics")), ttlmap)).To(BeEquivalentTo(time.Minute * 15))
 		})
 		It("returns the minimum TTL for all matching configured hosts", func() {
-			Expect(proxy.TTLFor(fp.Must(url.Parse("https://sub.webhookdb.com/feed.ics")), ttlmap)).To(BeEquivalentTo(time.Minute * 10))
+			Expect(feed.TTLFor(fp.Must(url.Parse("https://sub.webhookdb.com/feed.ics")), ttlmap)).To(BeEquivalentTo(time.Minute * 10))
 		})
 		It("returns the default ttl for no match, or a TTL higher than default", func() {
-			Expect(proxy.TTLFor(fp.Must(url.Parse("https://sub.lithic.tech/feed.ics")), ttlmap)).To(Equal(proxy.DefaultTTL))
-			Expect(proxy.TTLFor(fp.Must(url.Parse("https://infrequent.com/feed.ics")), ttlmap)).To(Equal(proxy.DefaultTTL))
+			Expect(feed.TTLFor(fp.Must(url.Parse("https://sub.lithic.tech/feed.ics")), ttlmap)).To(Equal(feed.DefaultTTL))
+			Expect(feed.TTLFor(fp.Must(url.Parse("https://infrequent.com/feed.ics")), ttlmap)).To(Equal(feed.DefaultTTL))
 		})
 	})
 
@@ -56,7 +56,7 @@ var _ = Describe("proxy", func() {
 					ghttp.RespondWith(200, "hi"),
 				),
 			)
-			feed, err := proxy.Fetch(ctx, fp.Must(url.Parse(server.URL()+"/feed.ics")))
+			feed, err := feed.Fetch(ctx, fp.Must(url.Parse(server.URL()+"/feed.ics")))
 			Expect(err).ToNot(HaveOccurred())
 			Expect(feed.Body).To(BeEquivalentTo("hi"))
 			Expect(feed.MD5).To(BeEquivalentTo("49f68a5c8493ec2c0bf489821c21fc3b"))
@@ -68,9 +68,9 @@ var _ = Describe("proxy", func() {
 					ghttp.RespondWith(403, "hi"),
 				),
 			)
-			_, err := proxy.Fetch(ctx, fp.Must(url.Parse(server.URL()+"/feed.ics")))
-			Expect(err).To(BeAssignableToTypeOf(&proxy.OriginError{}))
-			Expect(err.(*proxy.OriginError)).To(And(
+			_, err := feed.Fetch(ctx, fp.Must(url.Parse(server.URL()+"/feed.ics")))
+			Expect(err).To(BeAssignableToTypeOf(&feed.OriginError{}))
+			Expect(err.(*feed.OriginError)).To(And(
 				HaveField("StatusCode", 403),
 				HaveField("Body", BeEquivalentTo("hi")),
 			))

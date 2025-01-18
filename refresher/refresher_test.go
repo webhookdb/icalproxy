@@ -10,9 +10,9 @@ import (
 	"github.com/webhookdb/icalproxy/appglobals"
 	"github.com/webhookdb/icalproxy/config"
 	"github.com/webhookdb/icalproxy/db"
+	"github.com/webhookdb/icalproxy/feed"
 	"github.com/webhookdb/icalproxy/fp"
 	"github.com/webhookdb/icalproxy/pgxt"
-	"github.com/webhookdb/icalproxy/proxy"
 	"github.com/webhookdb/icalproxy/refresher"
 	"github.com/webhookdb/icalproxy/types"
 	"math/rand"
@@ -60,13 +60,13 @@ var _ = Describe("refresher", func() {
 			)
 			Expect(db.CommitFeed(ag.DB, ctx,
 				fp.Must(url.Parse(origin.URL()+"/expired-ttl.ics")),
-				proxy.NewFeed(
+				feed.New(
 					[]byte("EXPIRED"),
 					time.Now().Add(-5*time.Hour),
 				))).To(Succeed())
 			Expect(db.CommitFeed(ag.DB, ctx,
 				fp.Must(url.Parse(origin.URL()+"/recent-ttl.ics")),
-				proxy.NewFeed(
+				feed.New(
 					[]byte("RECENT"),
 					time.Now().Add(-time.Hour),
 				))).To(Succeed())
@@ -82,7 +82,7 @@ var _ = Describe("refresher", func() {
 				istr := strconv.Itoa(i)
 				Expect(db.CommitFeed(ag.DB, ctx,
 					fp.Must(url.Parse(origin.URL()+"/feed-"+istr)),
-					proxy.NewFeed(
+					feed.New(
 						[]byte("FEED-"+istr),
 						time.Now().Add(-5*time.Hour),
 					))).To(Succeed())
@@ -109,20 +109,20 @@ var _ = Describe("refresher", func() {
 
 			Expect(db.CommitFeed(ag.DB, ctx,
 				fp.Must(url.Parse("https://30min.com/15old")),
-				proxy.NewFeed([]byte("ORIGINAL"), time.Now().Add(-15*time.Minute)),
+				feed.New([]byte("ORIGINAL"), time.Now().Add(-15*time.Minute)),
 			)).To(Succeed())
 			Expect(db.CommitFeed(ag.DB, ctx,
 				fp.Must(url.Parse("https://30min.com/45old")),
-				proxy.NewFeed([]byte("ORIGINAL"), time.Now().Add(-45*time.Minute)),
+				feed.New([]byte("ORIGINAL"), time.Now().Add(-45*time.Minute)),
 			)).To(Succeed())
 
 			Expect(db.CommitFeed(ag.DB, ctx,
 				fp.Must(url.Parse("https://60min.com/45old")),
-				proxy.NewFeed([]byte("ORIGINAL"), time.Now().Add(-45*time.Minute)),
+				feed.New([]byte("ORIGINAL"), time.Now().Add(-45*time.Minute)),
 			)).To(Succeed())
 			Expect(db.CommitFeed(ag.DB, ctx,
 				fp.Must(url.Parse("https://60min.com/75old")),
-				proxy.NewFeed([]byte("ORIGINAL"), time.Now().Add(-75*time.Minute)),
+				feed.New([]byte("ORIGINAL"), time.Now().Add(-75*time.Minute)),
 			)).To(Succeed())
 
 			Expect(pgxt.WithTransaction(ctx, ag.DB, func(tx pgx.Tx) error {

@@ -1,4 +1,4 @@
-package proxy
+package feed
 
 import (
 	"context"
@@ -69,11 +69,11 @@ func Fetch(ctx context.Context, url *url.URL) (*Feed, error) {
 			Body:       b,
 		}
 	}
-	f := NewFeed(b, now)
+	f := New(b, now)
 	return f, nil
 }
 
-func NewFeed(b []byte, now time.Time) *Feed {
+func New(b []byte, now time.Time) *Feed {
 	f := &Feed{
 		Body:      b,
 		FetchedAt: now,

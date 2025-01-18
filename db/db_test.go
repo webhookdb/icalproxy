@@ -8,8 +8,8 @@ import (
 	"github.com/webhookdb/icalproxy/appglobals"
 	"github.com/webhookdb/icalproxy/config"
 	"github.com/webhookdb/icalproxy/db"
+	"github.com/webhookdb/icalproxy/feed"
 	"github.com/webhookdb/icalproxy/fp"
-	"github.com/webhookdb/icalproxy/proxy"
 	"net/url"
 	"testing"
 	"time"
@@ -68,7 +68,7 @@ VALUES ('https://localhost/feed', 'LOCALHOST', now(), 'vevent', 'abc123', now(),
 	Describe("CommitFeed", func() {
 		It("sets fields from the passed in feed", func() {
 			t := time.Date(2020, 1, 1, 0, 0, 0, 999999, time.UTC)
-			Expect(db.CommitFeed(ag.DB, ctx, fp.Must(url.Parse("https://localhost/feed")), &proxy.Feed{
+			Expect(db.CommitFeed(ag.DB, ctx, fp.Must(url.Parse("https://localhost/feed")), &feed.Feed{
 				Body:      []byte("hello"),
 				MD5:       "abc123",
 				FetchedAt: t,
@@ -80,12 +80,12 @@ VALUES ('https://localhost/feed', 'LOCALHOST', now(), 'vevent', 'abc123', now(),
 			Expect(md5).To(BeEquivalentTo("abc123"))
 		})
 		It("upserts fields", func() {
-			Expect(db.CommitFeed(ag.DB, ctx, fp.Must(url.Parse("https://localhost/feed")), &proxy.Feed{
+			Expect(db.CommitFeed(ag.DB, ctx, fp.Must(url.Parse("https://localhost/feed")), &feed.Feed{
 				Body:      []byte("hello"),
 				MD5:       "call1",
 				FetchedAt: time.Now(),
 			})).To(Succeed())
-			Expect(db.CommitFeed(ag.DB, ctx, fp.Must(url.Parse("https://localhost/feed")), &proxy.Feed{
+			Expect(db.CommitFeed(ag.DB, ctx, fp.Must(url.Parse("https://localhost/feed")), &feed.Feed{
 				Body:      []byte("hello"),
 				MD5:       "call2",
 				FetchedAt: time.Now(),

@@ -8,9 +8,9 @@ import (
 	"github.com/lithictech/go-aperitif/v2/parallel"
 	"github.com/webhookdb/icalproxy/appglobals"
 	"github.com/webhookdb/icalproxy/db"
+	"github.com/webhookdb/icalproxy/feed"
 	"github.com/webhookdb/icalproxy/internal"
 	"github.com/webhookdb/icalproxy/pgxt"
-	"github.com/webhookdb/icalproxy/proxy"
 	"github.com/webhookdb/icalproxy/types"
 	"net/url"
 	"strings"
@@ -66,7 +66,7 @@ func (r *Refresher) Run(ctx context.Context) error {
 func (r *Refresher) buildSelectQuery() string {
 	now := time.Now().UTC()
 	nowFmt := now.Format(time.RFC3339)
-	defaultTTLMillis := time.Duration(proxy.DefaultTTL).Milliseconds()
+	defaultTTLMillis := time.Duration(feed.DefaultTTL).Milliseconds()
 	var checkedAtCond string
 	if len(r.ag.Config.IcalTTLMap) > 0 {
 		whenStatements := make([]string, 0, len(r.ag.Config.IcalTTLMap))
@@ -142,17 +142,17 @@ func (r *Refresher) processUrl(ctx context.Context, tx pgx.Tx, txMux *sync.Mutex
 	if err != nil {
 		return internal.ErrWrap(err, "url parsed failed, should not have been stored")
 	}
-	feed, err := proxy.Fetch(ctx, uri)
+	fd, err := feed.Fetch(ctx, uri)
 	if err != nil {
 		//panic("handle fetch error by updating fetch time: " + err.Error())
 		return err
 	}
-	if feed.MD5 == rtp.MD5 {
+	if fd.MD5 == rtp.MD5 {
 		logctx.Logger(ctx).Info("feed_unchanged")
 	} else {
 		txMux.Lock()
 		defer txMux.Unlock()
-		if err := db.CommitFeed(tx, ctx, uri, feed); err != nil {
+		if err := db.CommitFeed(tx, ctx, uri, fd); err != nil {
 			logctx.Logger(ctx).With("error", err).Error("refresh_commit_feed_error")
 		}
 		logctx.Logger(ctx).Info("feed_change_committed")

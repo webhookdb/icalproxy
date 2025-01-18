@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/webhookdb/icalproxy/feed"
 	"github.com/webhookdb/icalproxy/pgxt"
-	"github.com/webhookdb/icalproxy/proxy"
 	"github.com/webhookdb/icalproxy/types"
 	"net/url"
 	"time"
@@ -56,8 +56,8 @@ func FetchConditionalRow(db *pgxpool.Pool, ctx context.Context, uri *url.URL) (*
 	return &r, nil
 }
 
-func FetchContentsAsFeed(db *pgxpool.Pool, ctx context.Context, uri *url.URL) (*proxy.Feed, error) {
-	r := proxy.Feed{}
+func FetchContentsAsFeed(db *pgxpool.Pool, ctx context.Context, uri *url.URL) (*feed.Feed, error) {
+	r := feed.Feed{}
 	const q = `SELECT contents_last_modified, contents_md5, contents FROM icalproxy_feeds_v1 WHERE url = $1`
 	err := db.QueryRow(ctx, q, uri.String()).Scan(&r.FetchedAt, &r.MD5, &r.Body)
 	if err != nil {
@@ -66,7 +66,7 @@ func FetchContentsAsFeed(db *pgxpool.Pool, ctx context.Context, uri *url.URL) (*
 	return &r, nil
 }
 
-func CommitFeed(db pgxt.IExec, ctx context.Context, uri *url.URL, feed *proxy.Feed) error {
+func CommitFeed(db pgxt.IExec, ctx context.Context, uri *url.URL, feed *feed.Feed) error {
 	query := `INSERT INTO icalproxy_feeds_v1 
 (url, url_host, checked_at, contents, contents_md5, contents_last_modified, contents_size)
 VALUES ($1, $2, $3, $4, $5, $6, $7)

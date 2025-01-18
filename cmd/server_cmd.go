@@ -42,7 +42,7 @@ var serverCmd = &cli.Command{
 			return internal.ErrWrap(err, "failed to register v1 endpoints")
 		}
 
-		refresher.StartScheduler(ctx, appGlobals)
+		refresher.StartScheduler(ctx, refresher.New(appGlobals))
 
 		logger.With("port", appGlobals.Config.Port).InfoContext(ctx, "server_listening")
 		if err := e.Start(fmt.Sprintf(":%d", appGlobals.Config.Port)); err != nil && !errors.Is(err, http.ErrServerClosed) {
