@@ -19,7 +19,11 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 CREATE TABLE IF NOT EXISTS icalproxy_feeds_v1 (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     url TEXT NOT NULL UNIQUE NOT NULL,
-    url_host TEXT NOT NULL,
+    -- Host TTL is specified using suffixes/ends with (icloud.com vs p123.icloud.com),
+    -- but search performances requires prefixes (ie, 'starts with icloud.com).
+    -- So store the url host reversed, so we can do "reverse('p123.icloud.com') starts with reverse('icloud.com')"
+    -- See https://stackoverflow.com/questions/1566717/postgresql-like-query-performance-variations
+    url_host_rev TEXT NOT NULL,
     checked_at timestamptz NOT NULL,
     contents_md5 TEXT NOT NULL,
     contents_last_modified timestamptz NOT NULL,
@@ -28,8 +32,11 @@ CREATE TABLE IF NOT EXISTS icalproxy_feeds_v1 (
     fetch_headers JSONB NOT NULL DEFAULT '{}',
     fetch_error_body BYTEA
 );
-CREATE INDEX IF NOT EXISTS icalproxy_feeds_v1_url_host_idx ON icalproxy_feeds_v1(url_host);
+-- See above for details on this index.
+CREATE INDEX IF NOT EXISTS icalproxy_feeds_v1_url_host_rev_idx ON icalproxy_feeds_v1(url_host_rev COLLATE "C");
+-- Index checked_at since we need to know recent rows.
 CREATE INDEX IF NOT EXISTS icalproxy_feeds_v1_checked_at_idx ON icalproxy_feeds_v1(checked_at);
+
 -- Keep the feed contents in a different table, since they can be very large.
 -- This avoids loading gigabytes of data if you want to do a select *, can speed up updates, etc.
 CREATE TABLE IF NOT EXISTS icalproxy_feed_contents_v1 (
@@ -104,14 +111,14 @@ type CommitFeedDB interface {
 func CommitFeed(db CommitFeedDB, ctx context.Context, feed *feed.Feed) error {
 	// Truncate the second out, since http only knows about seconds
 	fetchedTrunc := feed.FetchedAt.Truncate(time.Second)
-	urlHost := types.NormalizeURLHostname(feed.Url)
+	urlHost := types.NormalizeURLHostname(feed.Url).Reverse()
 
 	if feed.HttpStatus >= 400 {
 		const errQuery = `INSERT INTO icalproxy_feeds_v1 
-(url, url_host, checked_at, fetch_status, fetch_headers, fetch_error_body, contents_md5, contents_last_modified, contents_size)
+(url, url_host_rev, checked_at, fetch_status, fetch_headers, fetch_error_body, contents_md5, contents_last_modified, contents_size)
 VALUES ($1, $2, $3, $4, $5, $6, '', $7, 0)
 ON CONFLICT (url) DO UPDATE SET
-	url_host=EXCLUDED.url_host,
+	url_host_rev=EXCLUDED.url_host_rev,
 	checked_at=EXCLUDED.checked_at,
 	fetch_status=EXCLUDED.fetch_status,
 	fetch_headers=EXCLUDED.fetch_headers,
@@ -131,10 +138,10 @@ ON CONFLICT (url) DO UPDATE SET
 		return nil
 	}
 	const feedQuery = `INSERT INTO icalproxy_feeds_v1 
-(url, url_host, checked_at, fetch_status, fetch_headers, contents_md5, contents_last_modified, contents_size, fetch_error_body)
+(url, url_host_rev, checked_at, fetch_status, fetch_headers, contents_md5, contents_last_modified, contents_size, fetch_error_body)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, '')
 ON CONFLICT (url) DO UPDATE SET
-	url_host=EXCLUDED.url_host,
+	url_host_rev=EXCLUDED.url_host_rev,
 	checked_at=EXCLUDED.checked_at,
 	fetch_status=EXCLUDED.fetch_status,
 	fetch_headers=EXCLUDED.fetch_headers,
@@ -149,7 +156,7 @@ VALUES ($1, $2)
 ON CONFLICT (feed_id) DO UPDATE SET contents = EXCLUDED.contents`
 	feedArgs := []any{
 		feed.Url.String(),
-		types.NormalizeURLHostname(feed.Url),
+		urlHost,
 		fetchedTrunc,
 		feed.HttpStatus,
 		feed.HttpHeaders,
@@ -170,7 +177,7 @@ ON CONFLICT (feed_id) DO UPDATE SET contents = EXCLUDED.contents`
 // TruncateLocal deletes localhost and 127.0.0.1 urls,
 // which are usually only generated during testing.
 func TruncateLocal(ctx context.Context, db *pgxpool.Pool) error {
-	_, err := db.Exec(ctx, `DELETE FROM icalproxy_feeds_v1 WHERE url_host='127001' OR url_host='LOCALHOST'`)
+	_, err := db.Exec(ctx, `DELETE FROM icalproxy_feeds_v1 WHERE url_host_rev=reverse('127001') OR url_host_rev=reverse('LOCALHOST')`)
 	if err != nil {
 		return err
 	}

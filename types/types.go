@@ -28,6 +28,19 @@ func NormalizeHostname(hostname string) NormalizedHostname {
 	return NormalizedHostname(h)
 }
 
+// Reverse reverses the hostname string.
+// Note that 'reversing a string' is really confusing because of glyphs,
+// but since we are just dealing with hostnames, and for bytewise indexing,
+// we can just reverse bytes.
+func (h NormalizedHostname) Reverse() NormalizedHostname {
+	b := []byte(h)
+	r := make([]byte, len(b))
+	for i, c := range b {
+		r[len(b)-i-1] = c
+	}
+	return NormalizedHostname(r)
+}
+
 var cleanHostname = regexp.MustCompile("[^a-zA-Z0-9]")
 
 func FormatHttpTime(t time.Time) string {

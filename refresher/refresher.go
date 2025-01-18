@@ -75,8 +75,8 @@ func (r *Refresher) buildSelectQuery() string {
 				continue
 			}
 			stmt := fmt.Sprintf(
-				"WHEN url_host LIKE '%%' || '%s' THEN '%s'::timestamptz - '%dms'::interval",
-				host, nowFmt, time.Duration(ttl).Milliseconds(),
+				"WHEN url_host_rev ^@ '%s' THEN '%s'::timestamptz - '%dms'::interval",
+				host.Reverse(), nowFmt, time.Duration(ttl).Milliseconds(),
 			)
 			whenStatements = append(whenStatements, stmt)
 		}

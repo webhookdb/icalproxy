@@ -77,8 +77,8 @@ var _ = Describe("db", func() {
 			Expect(err).To(MatchError(ContainSubstring("no rows in result set")))
 		})
 		It("errors if only the content row does not exist", func() {
-			_, err := ag.DB.Exec(ctx, `INSERT INTO icalproxy_feeds_v1(url, url_host, checked_at, contents_md5, contents_last_modified, contents_size, fetch_status, fetch_headers)
-VALUES ('https://localhost/feed', 'LOCALHOST', now(), 'abc123', now(), 5, 200, '{}')`)
+			_, err := ag.DB.Exec(ctx, `INSERT INTO icalproxy_feeds_v1(url, url_host_rev, checked_at, contents_md5, contents_last_modified, contents_size, fetch_status, fetch_headers)
+VALUES ('https://localhost/feed', 'TSOHLACOL', now(), 'abc123', now(), 5, 200, '{}')`)
 			Expect(err).ToNot(HaveOccurred())
 			_, err = db.FetchContentsAsFeed(ag.DB, ctx, fp.Must(url.Parse("https://localhost/feed")))
 			Expect(err).To(MatchError(ContainSubstring("no rows in result set")))
@@ -104,7 +104,7 @@ VALUES ('https://localhost/feed', 'LOCALHOST', now(), 'abc123', now(), 5, 200, '
 			))
 			Expect(rowv1).To(And(
 				HaveField("Url", "https://localhost/feed"),
-				HaveField("UrlHost", "LOCALHOST"),
+				HaveField("UrlHostRev", "TSOHLACOL"),
 				HaveField("CheckedAt", BeTemporally("==", tTrunc)),
 				HaveField("ContentsMD5", "version1hash"),
 				HaveField("ContentsLastModified", BeTemporally("==", tTrunc)),
@@ -130,7 +130,7 @@ VALUES ('https://localhost/feed', 'LOCALHOST', now(), 'abc123', now(), 5, 200, '
 			))
 			Expect(rowv2).To(And(
 				HaveField("Url", "https://localhost/feed"),
-				HaveField("UrlHost", "LOCALHOST"),
+				HaveField("UrlHostRev", "TSOHLACOL"),
 				HaveField("CheckedAt", BeTemporally("==", t2)),
 				HaveField("ContentsMD5", "version2hash"),
 				HaveField("ContentsLastModified", BeTemporally("==", t2)),
@@ -156,7 +156,7 @@ VALUES ('https://localhost/feed', 'LOCALHOST', now(), 'abc123', now(), 5, 200, '
 			))
 			Expect(rowv1).To(And(
 				HaveField("Url", "https://localhost/feed"),
-				HaveField("UrlHost", "LOCALHOST"),
+				HaveField("UrlHostRev", "TSOHLACOL"),
 				HaveField("CheckedAt", BeTemporally("==", t)),
 				HaveField("ContentsMD5", ""),
 				HaveField("ContentsLastModified", BeTemporally("==", t)),
@@ -182,7 +182,7 @@ VALUES ('https://localhost/feed', 'LOCALHOST', now(), 'abc123', now(), 5, 200, '
 			))
 			Expect(rowv2).To(And(
 				HaveField("Url", "https://localhost/feed"),
-				HaveField("UrlHost", "LOCALHOST"),
+				HaveField("UrlHostRev", "TSOHLACOL"),
 				HaveField("CheckedAt", BeTemporally("==", t2)),
 				HaveField("ContentsMD5", ""),
 				// last modified does NOT get updated
@@ -219,7 +219,7 @@ VALUES ('https://localhost/feed', 'LOCALHOST', now(), 'abc123', now(), 5, 200, '
 			))
 			Expect(row).To(And(
 				HaveField("Url", "https://localhost/feed"),
-				HaveField("UrlHost", "LOCALHOST"),
+				HaveField("UrlHostRev", "TSOHLACOL"),
 				HaveField("CheckedAt", BeTemporally("==", t2)),
 				HaveField("ContentsMD5", "version2hash"),
 				HaveField("ContentsLastModified", BeTemporally("==", t2)),
@@ -254,7 +254,7 @@ VALUES ('https://localhost/feed', 'LOCALHOST', now(), 'abc123', now(), 5, 200, '
 			))
 			Expect(row).To(And(
 				HaveField("Url", "https://localhost/feed"),
-				HaveField("UrlHost", "LOCALHOST"),
+				HaveField("UrlHostRev", "TSOHLACOL"),
 				HaveField("CheckedAt", BeTemporally("==", t2)),
 				HaveField("ContentsMD5", "version1hash"),
 				HaveField("ContentsLastModified", BeTemporally("==", t)),
@@ -270,7 +270,7 @@ VALUES ('https://localhost/feed', 'LOCALHOST', now(), 'abc123', now(), 5, 200, '
 type feedRow struct {
 	Id                   int64
 	Url                  string
-	UrlHost              string
+	UrlHostRev           string
 	CheckedAt            time.Time
 	ContentsMD5          string
 	ContentsLastModified time.Time
