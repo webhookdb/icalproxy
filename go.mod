@@ -6,9 +6,10 @@ require (
 	github.com/jackc/pgx/v5 v5.7.2
 	github.com/joho/godotenv v1.5.1
 	github.com/labstack/echo/v4 v4.12.0
-	github.com/lithictech/go-aperitif/v2 v2.1.1
+	github.com/lithictech/go-aperitif/v2 v2.1.2
 	github.com/onsi/ginkgo/v2 v2.19.1
 	github.com/onsi/gomega v1.34.1
+	github.com/rgalanakis/golangal v1.2.0
 	github.com/sethvargo/go-envconfig v1.1.0
 	github.com/urfave/cli/v2 v2.27.5
 )
@@ -29,6 +30,7 @@ require (
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/phsym/console-slog v0.3.1 // indirect
+	github.com/pkg/errors v0.9.1 // indirect
 	github.com/rgalanakis/validator v0.0.0-20180731224108-4a34a8927f7c // indirect
 	github.com/rogpeppe/go-internal v1.13.1 // indirect
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect

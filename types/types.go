@@ -1,6 +1,7 @@
 package types
 
 import (
+	"net/http"
 	"net/url"
 	"regexp"
 	"strings"
@@ -28,3 +29,7 @@ func NormalizeHostname(hostname string) NormalizedHostname {
 }
 
 var cleanHostname = regexp.MustCompile("[^a-zA-Z0-9]")
+
+func FormatHttpTime(t time.Time) string {
+	return t.UTC().Format(http.TimeFormat)
+}

@@ -66,7 +66,7 @@ func (r *Refresher) Run(ctx context.Context) error {
 
 func (r *Refresher) buildSelectQuery() string {
 	now := time.Now().UTC()
-	nowFmt := now.Format(time.RFC3339)
+	nowFmt := types.FormatHttpTime(now)
 	whenStatements := make([]string, 0, len(r.ag.Config.IcalTTLMap))
 	for host, ttl := range r.ag.Config.IcalTTLMap {
 		if host == "" {

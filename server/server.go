@@ -8,6 +8,7 @@ import (
 	"github.com/webhookdb/icalproxy/appglobals"
 	"github.com/webhookdb/icalproxy/db"
 	"github.com/webhookdb/icalproxy/proxy"
+	"github.com/webhookdb/icalproxy/types"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -104,7 +105,7 @@ func (h *endpointHandler) conditionalGetCheck(_ context.Context) error {
 		}
 	}
 	if lastmod := h.c.Request().Header.Get("If-Modified-Since"); lastmod != "" {
-		if lastmodtz, err := time.Parse(lastmod, time.RFC1123); err == nil {
+		if lastmodtz, err := http.ParseTime(lastmod); err == nil {
 			rowChanged := h.row.ContentsLastModified.After(lastmodtz)
 			if !rowChanged {
 				return echo.NewHTTPError(http.StatusNotModified)
@@ -120,7 +121,7 @@ func (h *endpointHandler) serveIfTtl(ctx context.Context) (bool, error) {
 	}
 	timeSinceFetch := time.Now().Sub(h.row.ContentsLastModified)
 	maxTtl := time.Duration(proxy.TTLFor(h.url, h.ag.Config.IcalTTLMap))
-	if timeSinceFetch > maxTtl {
+	if timeSinceFetch <= maxTtl {
 		feed, err := db.FetchContentsAsFeed(h.ag.DB, ctx, h.url)
 		if err != nil {
 			return false, ErrFallback
@@ -147,9 +148,10 @@ func (h *endpointHandler) serveResponse(_ context.Context, feed *proxy.Feed) err
 	h.c.Response().Header().Set("Content-Type", proxy.CalendarContentType)
 	h.c.Response().Header().Set("Content-Length", strconv.Itoa(len(feed.Body)))
 	h.c.Response().Header().Set("Etag", string(feed.MD5))
-	h.c.Response().Header().Set("Last-Modified", feed.FetchedAt.Format(time.RFC1123))
+	h.c.Response().Header().Set("Last-Modified", types.FormatHttpTime(feed.FetchedAt))
 	if h.c.Request().Method == http.MethodHead {
-		return h.c.NoContent(http.StatusNoContent)
+		h.c.Response().WriteHeader(200)
+		return nil
 	}
 	return h.c.Blob(200, proxy.CalendarContentType, feed.Body)
 }

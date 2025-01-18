@@ -78,7 +78,9 @@ ON CONFLICT (url) DO UPDATE SET
 	contents_size=EXCLUDED.contents_size
 ;
 `
-	args := []any{uri.String(), types.NormalizeURLHostname(uri), feed.FetchedAt, feed.Body, feed.MD5, feed.FetchedAt, len(feed.Body)}
+	// Truncate the second out, since http only knows about seconds
+	fetchedTrunc := feed.FetchedAt.Truncate(time.Second)
+	args := []any{uri.String(), types.NormalizeURLHostname(uri), fetchedTrunc, feed.Body, feed.MD5, fetchedTrunc, len(feed.Body)}
 	_, err := db.Exec(ctx, query, args...)
 	if err != nil {
 		return fmt.Errorf("unable to insert row: %w", err)
