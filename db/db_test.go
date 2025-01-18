@@ -38,8 +38,8 @@ var _ = Describe("db", func() {
 	})
 	Describe("FetchConditionalRow", func() {
 		It("returns the row if it exists", func() {
-			_, err := ag.DB.Exec(ctx, `INSERT INTO icalproxy_feeds_v1(url, url_host, checked_at, contents, contents_md5, contents_last_modified, contents_size)
-VALUES ('https://localhost/feed', 'LOCALHOST', now(), 'vevent', 'abc123', now(), 5)`)
+			_, err := ag.DB.Exec(ctx, `INSERT INTO icalproxy_feeds_v1(url, url_host, checked_at, contents_md5, contents_last_modified, contents_size)
+VALUES ('https://localhost/feed', 'LOCALHOST', now(), 'abc123', now(), 5)`)
 			Expect(err).ToNot(HaveOccurred())
 			r, err := db.FetchConditionalRow(ag.DB, ctx, fp.Must(url.Parse("https://localhost/feed")))
 			Expect(err).ToNot(HaveOccurred())
@@ -53,15 +53,24 @@ VALUES ('https://localhost/feed', 'LOCALHOST', now(), 'vevent', 'abc123', now(),
 	})
 	Describe("FetchContentsAsFeed", func() {
 		It("returns the row", func() {
-			_, err := ag.DB.Exec(ctx, `INSERT INTO icalproxy_feeds_v1(url, url_host, checked_at, contents, contents_md5, contents_last_modified, contents_size)
-VALUES ('https://localhost/feed', 'LOCALHOST', now(), 'vevent', 'abc123', now(), 5)`)
-			Expect(err).ToNot(HaveOccurred())
+			Expect(db.CommitFeed(ag.DB, ctx, fp.Must(url.Parse("https://localhost/feed")), &feed.Feed{
+				Body:      []byte("hello"),
+				MD5:       "abc123",
+				FetchedAt: time.Now(),
+			})).To(Succeed())
 			r, err := db.FetchContentsAsFeed(ag.DB, ctx, fp.Must(url.Parse("https://localhost/feed")))
 			Expect(err).ToNot(HaveOccurred())
 			Expect(r.MD5).To(BeEquivalentTo("abc123"))
 		})
 		It("errors if the row does not exist", func() {
 			_, err := db.FetchContentsAsFeed(ag.DB, ctx, fp.Must(url.Parse("https://localhost/feed")))
+			Expect(err).To(MatchError(ContainSubstring("no rows in result set")))
+		})
+		It("errors if only the content row does not exist", func() {
+			_, err := ag.DB.Exec(ctx, `INSERT INTO icalproxy_feeds_v1(url, url_host, checked_at, contents_md5, contents_last_modified, contents_size)
+VALUES ('https://localhost/feed', 'LOCALHOST', now(), 'abc123', now(), 5)`)
+			Expect(err).ToNot(HaveOccurred())
+			_, err = db.FetchContentsAsFeed(ag.DB, ctx, fp.Must(url.Parse("https://localhost/feed")))
 			Expect(err).To(MatchError(ContainSubstring("no rows in result set")))
 		})
 	})

@@ -36,6 +36,11 @@ lint:
 
 check: lint vet test
 
+db-reset:
+	${BIN} db reset
+db-migrate:
+	${BIN} db migrate
+
 update-lithic-deps:
 	go get github.com/rgalanakis/golangal@latest
 	go get github.com/lithictech/go-aperitif@latest

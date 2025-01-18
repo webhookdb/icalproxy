@@ -15,6 +15,7 @@ func Execute() {
 	app := &cli.App{
 		Name: "icalproxy",
 		Commands: []*cli.Command{
+			dbCmd,
 			serverCmd,
 		},
 		Flags: []cli.Flag{
