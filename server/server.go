@@ -88,9 +88,7 @@ func (h *endpointHandler) extractUrl() error {
 func (h *endpointHandler) loadRow(ctx context.Context) error {
 	r, err := db.FetchConditionalRow(h.ag.DB, ctx, h.url)
 	if err != nil {
-		if err.Error() != "no rows in result set" {
-			return ErrFallback
-		}
+		return ErrFallback
 	}
 	h.row = r
 	return nil
@@ -101,7 +99,7 @@ func (h *endpointHandler) conditionalGetCheck(_ context.Context) error {
 		return nil
 	}
 	if etag := h.c.Request().Header.Get("If-None-Match"); etag != "" {
-		if h.row.ContentsMD5 == etag {
+		if string(h.row.ContentsMD5) == etag {
 			return echo.NewHTTPError(http.StatusNotModified)
 		}
 	}
@@ -121,7 +119,7 @@ func (h *endpointHandler) serveIfTtl(ctx context.Context) (bool, error) {
 		return false, nil
 	}
 	timeSinceFetch := time.Now().Sub(h.row.ContentsLastModified)
-	maxTtl := time.Duration(proxy.TTLFor(h.url, h.ag.Config))
+	maxTtl := time.Duration(proxy.TTLFor(h.url, h.ag.Config.IcalTTLMap))
 	if timeSinceFetch > maxTtl {
 		feed, err := db.FetchContentsAsFeed(h.ag.DB, ctx, h.url)
 		if err != nil {
@@ -148,7 +146,7 @@ func (h *endpointHandler) refetchAndCommit(ctx context.Context) (*proxy.Feed, er
 func (h *endpointHandler) serveResponse(_ context.Context, feed *proxy.Feed) error {
 	h.c.Response().Header().Set("Content-Type", proxy.CalendarContentType)
 	h.c.Response().Header().Set("Content-Length", strconv.Itoa(len(feed.Body)))
-	h.c.Response().Header().Set("Etag", feed.MD5)
+	h.c.Response().Header().Set("Etag", string(feed.MD5))
 	h.c.Response().Header().Set("Last-Modified", feed.FetchedAt.Format(time.RFC1123))
 	if h.c.Request().Method == http.MethodHead {
 		return h.c.NoContent(http.StatusNoContent)

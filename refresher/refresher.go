@@ -7,11 +7,11 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/lithictech/go-aperitif/v2/logctx"
 	"github.com/webhookdb/icalproxy/appglobals"
-	"github.com/webhookdb/icalproxy/config"
 	"github.com/webhookdb/icalproxy/db"
 	"github.com/webhookdb/icalproxy/internal"
 	"github.com/webhookdb/icalproxy/pgxt"
 	"github.com/webhookdb/icalproxy/proxy"
+	"github.com/webhookdb/icalproxy/types"
 	"net/url"
 	"strings"
 	"sync"
@@ -78,7 +78,7 @@ func (r *Refresher) buildSelectQuery() string {
 		)
 		whenStatements = append(whenStatements, stmt)
 	}
-	whenStatements = append(whenStatements, fmt.Sprintf("ELSE '%s'::timestamptz - '%dms'::interval", nowFmt, config.IcalBaseTTL))
+	whenStatements = append(whenStatements, fmt.Sprintf("ELSE '%s'::timestamptz - '%dms'::interval", nowFmt, proxy.DefaultTTL))
 	q := fmt.Sprintf(`SELECT url, contents_md5
 FROM icalproxy_feeds_v1
 WHERE checked_at < (CASE
@@ -132,7 +132,7 @@ func (r *Refresher) processChunk(ctx context.Context) (int, error) {
 
 type RowToProcess struct {
 	Url string
-	MD5 string
+	MD5 types.MD5Hash
 }
 
 func (r *Refresher) processUrl(ctx context.Context, rtp RowToProcess) error {

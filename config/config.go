@@ -18,12 +18,6 @@ var BuildSha string
 var ReleaseVersion string
 var UserAgent = "github.com/webhookdb/icalproxy"
 
-// IcalBaseTTL is a general purpose slow TTL we use as a fallback
-// for calendars that don't match more specific, faster TTLs.
-// This is a constant, not configurable, since we don't want it to change
-// and isn't really at the discretion of the operator.
-const IcalBaseTTL = types.TTL(2 * time.Hour)
-
 type Config struct {
 	ApiKey      string `env:"API_KEY"`
 	DatabaseUrl string `env:"DATABASE_URL, default=postgres://ical:ical@localhost:18042/ical?sslmode=disable"`
@@ -64,9 +58,7 @@ func LoadConfig() (Config, error) {
 }
 
 func BuildTTLMap(environ []string) (map[types.NormalizedHostname]types.TTL, error) {
-	m := map[types.NormalizedHostname]types.TTL{
-		"": IcalBaseTTL,
-	}
+	m := map[types.NormalizedHostname]types.TTL{}
 	for _, e := range environ {
 		parts := strings.SplitN(e, "=", 2)
 		k, v := parts[0], parts[1]
@@ -76,8 +68,8 @@ func BuildTTLMap(environ []string) (map[types.NormalizedHostname]types.TTL, erro
 			if err != nil {
 				return m, internal.ErrWrap(err, "%s is not a valid duration", k)
 			}
-			hostname := strings.ToUpper(k[len("ICAL_TTL_"):])
-			m[types.NormalizedHostname(hostname)] = types.TTL(d)
+			hostname := types.NormalizeHostname(k[len("ICAL_TTL_"):])
+			m[hostname] = types.TTL(d)
 		}
 	}
 	return m, nil

@@ -2,9 +2,12 @@ package db
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/webhookdb/icalproxy/proxy"
+	"github.com/webhookdb/icalproxy/types"
 	"net/url"
 	"time"
 )
@@ -35,7 +38,7 @@ CREATE INDEX IF NOT EXISTS icalproxy_feeds_v1_checked_at ON icalproxy_feeds_v1(c
 `
 
 type ConditionalRow struct {
-	ContentsMD5          string
+	ContentsMD5          types.MD5Hash
 	ContentsLastModified time.Time
 }
 
@@ -44,6 +47,9 @@ func FetchConditionalRow(db *pgxpool.Pool, ctx context.Context, uri *url.URL) (*
 	const q = `SELECT contents_md5, contents_last_modified FROM icalproxy_feeds_v1 WHERE url = $1`
 	err := db.QueryRow(ctx, q, uri.String()).Scan(&r.ContentsMD5, &r.ContentsLastModified)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
 		return nil, err
 	}
 	return &r, nil
@@ -72,10 +78,18 @@ ON CONFLICT (url) DO UPDATE SET
 	contents_size=EXCLUDED.contents_size
 ;
 `
-	args := []any{uri.String(), proxy.NormalizeHostname(uri), feed.FetchedAt, feed.Body, feed.MD5, feed.FetchedAt, len(feed.Body)}
+	args := []any{uri.String(), types.NormalizeURLHostname(uri), feed.FetchedAt, feed.Body, feed.MD5, feed.FetchedAt, len(feed.Body)}
 	_, err := db.Exec(ctx, query, args...)
 	if err != nil {
 		return fmt.Errorf("unable to insert row: %w", err)
+	}
+	return nil
+}
+
+func Truncate(ctx context.Context, db *pgxpool.Pool) error {
+	_, err := db.Exec(ctx, `TRUNCATE TABLE icalproxy_feeds_v1`)
+	if err != nil {
+		return err
 	}
 	return nil
 }
