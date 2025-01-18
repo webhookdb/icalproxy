@@ -1,1 +1,1 @@
-web: icalproxy server
+web: heroku server
