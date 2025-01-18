@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/labstack/echo/v4"
 	"github.com/lithictech/go-aperitif/v2/api"
+	"github.com/lithictech/go-aperitif/v2/logctx"
 	"github.com/webhookdb/icalproxy/appglobals"
 	"github.com/webhookdb/icalproxy/db"
 	"github.com/webhookdb/icalproxy/feed"
@@ -33,7 +34,7 @@ type endpointHandler struct {
 	ag  *appglobals.AppGlobals
 	c   echo.Context
 	url *url.URL
-	row *db.ConditionalRow
+	row *db.FeedRow
 }
 
 func handle(ag *appglobals.AppGlobals) echo.HandlerFunc {
@@ -87,7 +88,7 @@ func (h *endpointHandler) extractUrl() error {
 }
 
 func (h *endpointHandler) loadRow(ctx context.Context) error {
-	r, err := db.FetchConditionalRow(h.ag.DB, ctx, h.url)
+	r, err := db.FetchFeedRow(h.ag.DB, ctx, h.url)
 	if err != nil {
 		return ErrFallback
 	}
@@ -135,16 +136,20 @@ func (h *endpointHandler) serveIfTtl(ctx context.Context) (bool, error) {
 func (h *endpointHandler) refetchAndCommit(ctx context.Context) (*feed.Feed, error) {
 	fd, err := feed.Fetch(ctx, h.url)
 	if err != nil {
-		// If the fetch fails, nothing we can do about it.
 		return nil, err
 	}
-	if err := db.CommitFeed(h.ag.DB, ctx, h.url, fd); err != nil {
-		// log error
+	if err := db.CommitFeed(h.ag.DB, ctx, fd); err != nil {
+		logctx.Logger(ctx).With("error", err).Error("commit_feed_error")
 	}
 	return fd, err
 }
 
 func (h *endpointHandler) serveResponse(_ context.Context, fd *feed.Feed) error {
+	if fd.HttpStatus >= 400 {
+		// 400s should be 'proxied' as an error
+		h.c.Response().Header().Set("Ical-Proxy-Origin-Error", "true")
+		return h.c.Blob(fd.HttpStatus, fd.HttpHeaders["Content-Type"], fd.Body)
+	}
 	h.c.Response().Header().Set("Content-Type", feed.CalendarContentType)
 	h.c.Response().Header().Set("Content-Length", strconv.Itoa(len(fd.Body)))
 	h.c.Response().Header().Set("Etag", string(fd.MD5))

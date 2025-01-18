@@ -58,20 +58,23 @@ var _ = Describe("feed", func() {
 			)
 			feed, err := feed.Fetch(ctx, fp.Must(url.Parse(server.URL()+"/feed.ics")))
 			Expect(err).ToNot(HaveOccurred())
-			Expect(feed.Body).To(BeEquivalentTo("hi"))
-			Expect(feed.MD5).To(BeEquivalentTo("49f68a5c8493ec2c0bf489821c21fc3b"))
+			Expect(feed).To(And(
+				HaveField("HttpStatus", 200),
+				HaveField("Body", BeEquivalentTo("hi")),
+				HaveField("MD5", BeEquivalentTo("49f68a5c8493ec2c0bf489821c21fc3b")),
+			))
 		})
-		It("errors for a non-2xx response", func() {
+		It("returns the feed in the case of an http error", func() {
 			server.AppendHandlers(
 				ghttp.CombineHandlers(
 					ghttp.VerifyRequest("GET", "/feed.ics", ""),
 					ghttp.RespondWith(403, "hi"),
 				),
 			)
-			_, err := feed.Fetch(ctx, fp.Must(url.Parse(server.URL()+"/feed.ics")))
-			Expect(err).To(BeAssignableToTypeOf(&feed.OriginError{}))
-			Expect(err.(*feed.OriginError)).To(And(
-				HaveField("StatusCode", 403),
+			feed, err := feed.Fetch(ctx, fp.Must(url.Parse(server.URL()+"/feed.ics")))
+			Expect(err).ToNot(HaveOccurred())
+			Expect(feed).To(And(
+				HaveField("HttpStatus", 403),
 				HaveField("Body", BeEquivalentTo("hi")),
 			))
 		})

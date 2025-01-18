@@ -59,14 +59,18 @@ var _ = Describe("refresher", func() {
 				),
 			)
 			Expect(db.CommitFeed(ag.DB, ctx,
-				fp.Must(url.Parse(origin.URL()+"/expired-ttl.ics")),
 				feed.New(
+					fp.Must(url.Parse(origin.URL()+"/expired-ttl.ics")),
+					make(map[string]string),
+					200,
 					[]byte("EXPIRED"),
 					time.Now().Add(-5*time.Hour),
 				))).To(Succeed())
 			Expect(db.CommitFeed(ag.DB, ctx,
-				fp.Must(url.Parse(origin.URL()+"/recent-ttl.ics")),
 				feed.New(
+					fp.Must(url.Parse(origin.URL()+"/recent-ttl.ics")),
+					make(map[string]string),
+					200,
 					[]byte("RECENT"),
 					time.Now().Add(-time.Hour),
 				))).To(Succeed())
@@ -81,8 +85,10 @@ var _ = Describe("refresher", func() {
 			for i := 0; i < rowCnt; i++ {
 				istr := strconv.Itoa(i)
 				Expect(db.CommitFeed(ag.DB, ctx,
-					fp.Must(url.Parse(origin.URL()+"/feed-"+istr)),
 					feed.New(
+						fp.Must(url.Parse(origin.URL()+"/feed-"+istr)),
+						make(map[string]string),
+						200,
 						[]byte("FEED-"+istr),
 						time.Now().Add(-5*time.Hour),
 					))).To(Succeed())
@@ -96,6 +102,30 @@ var _ = Describe("refresher", func() {
 			row1002 := fp.Must(db.FetchContentsAsFeed(ag.DB, ctx, fp.Must(url.Parse(origin.URL()+"/feed-1002"))))
 			Expect(string(row1002.Body)).To(BeEquivalentTo("FETCHED-1002"))
 		})
+		It("commits rows that fail to fetch", func() {
+			origin.AppendHandlers(
+				ghttp.CombineHandlers(
+					ghttp.VerifyRequest("GET", "/expired-ttl.ics", ""),
+					ghttp.RespondWith(401, "errbody"),
+				),
+			)
+			Expect(db.CommitFeed(ag.DB, ctx,
+				feed.New(
+					fp.Must(url.Parse(origin.URL()+"/expired-ttl.ics")),
+					make(map[string]string),
+					200,
+					[]byte("EXPIRED"),
+					time.Now().Add(-5*time.Hour),
+				))).To(Succeed())
+
+			Expect(refresher.New(ag).Run(ctx)).To(Succeed())
+
+			row := fp.Must(db.FetchContentsAsFeed(ag.DB, ctx, fp.Must(url.Parse(origin.URL()+"/expired-ttl.ics"))))
+			Expect(row).To(And(
+				HaveField("HttpStatus", 401),
+				HaveField("Body", BeEquivalentTo("errbody")),
+			))
+		})
 	})
 	Describe("SelectRowsToProcess", func() {
 		It("selects rows that have not been checked since the TTL for their host", func() {
@@ -106,23 +136,20 @@ var _ = Describe("refresher", func() {
 
 			ag.Config.IcalTTLMap["30MINCOM"] = types.TTL(30 * time.Minute)
 			ag.Config.IcalTTLMap["60MINCOM"] = types.TTL(60 * time.Minute)
+			hd := make(map[string]string)
 
 			Expect(db.CommitFeed(ag.DB, ctx,
-				fp.Must(url.Parse("https://30min.com/15old")),
-				feed.New([]byte("ORIGINAL"), time.Now().Add(-15*time.Minute)),
+				feed.New(fp.Must(url.Parse("https://30min.com/15old")), hd, 200, []byte("ORIGINAL"), time.Now().Add(-15*time.Minute)),
 			)).To(Succeed())
 			Expect(db.CommitFeed(ag.DB, ctx,
-				fp.Must(url.Parse("https://30min.com/45old")),
-				feed.New([]byte("ORIGINAL"), time.Now().Add(-45*time.Minute)),
+				feed.New(fp.Must(url.Parse("https://30min.com/45old")), hd, 200, []byte("ORIGINAL"), time.Now().Add(-45*time.Minute)),
 			)).To(Succeed())
 
 			Expect(db.CommitFeed(ag.DB, ctx,
-				fp.Must(url.Parse("https://60min.com/45old")),
-				feed.New([]byte("ORIGINAL"), time.Now().Add(-45*time.Minute)),
+				feed.New(fp.Must(url.Parse("https://60min.com/45old")), hd, 200, []byte("ORIGINAL"), time.Now().Add(-45*time.Minute)),
 			)).To(Succeed())
 			Expect(db.CommitFeed(ag.DB, ctx,
-				fp.Must(url.Parse("https://60min.com/75old")),
-				feed.New([]byte("ORIGINAL"), time.Now().Add(-75*time.Minute)),
+				feed.New(fp.Must(url.Parse("https://60min.com/75old")), hd, 200, []byte("ORIGINAL"), time.Now().Add(-75*time.Minute)),
 			)).To(Succeed())
 
 			Expect(pgxt.WithTransaction(ctx, ag.DB, func(tx pgx.Tx) error {

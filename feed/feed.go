@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/md5"
 	"encoding/hex"
-	"fmt"
 	"github.com/webhookdb/icalproxy/config"
 	"github.com/webhookdb/icalproxy/internal"
 	"github.com/webhookdb/icalproxy/types"
@@ -43,9 +42,12 @@ func TTLFor(uri *url.URL, ttlMap map[types.NormalizedHostname]types.TTL) types.T
 }
 
 type Feed struct {
-	Body      []byte
-	MD5       types.MD5Hash
-	FetchedAt time.Time
+	Url         *url.URL
+	HttpHeaders map[string]string
+	HttpStatus  int
+	Body        []byte
+	MD5         types.MD5Hash
+	FetchedAt   time.Time
 }
 
 func Fetch(ctx context.Context, url *url.URL) (*Feed, error) {
@@ -63,22 +65,19 @@ func Fetch(ctx context.Context, url *url.URL) (*Feed, error) {
 	if err != nil {
 		return nil, internal.ErrWrap(err, "feed fetch failed reading body")
 	}
-	if resp.StatusCode != 200 {
-		return nil, &OriginError{
-			StatusCode: resp.StatusCode,
-			Body:       b,
-		}
-	}
-	f := New(b, now)
+	f := New(url, internal.HeaderMap(resp.Header), resp.StatusCode, b, now)
 	return f, nil
 }
 
-func New(b []byte, now time.Time) *Feed {
+func New(url *url.URL, headers map[string]string, httpStatus int, body []byte, fetchedAt time.Time) *Feed {
 	f := &Feed{
-		Body:      b,
-		FetchedAt: now,
+		Url:         url,
+		HttpHeaders: headers,
+		HttpStatus:  httpStatus,
+		Body:        body,
+		FetchedAt:   fetchedAt,
 	}
-	hash := md5.Sum(b)
+	hash := md5.Sum(body)
 	f.MD5 = types.MD5Hash(hex.EncodeToString(hash[:]))
 	return f
 }
@@ -89,14 +88,4 @@ func init() {
 	httpClient = &http.Client{
 		Timeout: time.Minute,
 	}
-}
-
-// OriginError is used where the upstream origin server returned an error when fetching a feed.
-type OriginError struct {
-	StatusCode int
-	Body       []byte
-}
-
-func (e *OriginError) Error() string {
-	return fmt.Sprintf("upstream error: status=%d body=%s", e.StatusCode, string(e.Body))
 }

@@ -142,9 +142,9 @@ func (r *Refresher) processUrl(ctx context.Context, tx pgx.Tx, txMux *sync.Mutex
 	if err != nil {
 		return internal.ErrWrap(err, "url parsed failed, should not have been stored")
 	}
+	start := time.Now()
 	fd, err := feed.Fetch(ctx, uri)
 	if err != nil {
-		//panic("handle fetch error by updating fetch time: " + err.Error())
 		return err
 	}
 	if fd.MD5 == rtp.MD5 {
@@ -152,10 +152,12 @@ func (r *Refresher) processUrl(ctx context.Context, tx pgx.Tx, txMux *sync.Mutex
 	} else {
 		txMux.Lock()
 		defer txMux.Unlock()
-		if err := db.CommitFeed(tx, ctx, uri, fd); err != nil {
+		if err := db.CommitFeed(tx, ctx, fd); err != nil {
 			logctx.Logger(ctx).With("error", err).Error("refresh_commit_feed_error")
 		}
-		logctx.Logger(ctx).Info("feed_change_committed")
+		logctx.Logger(ctx).
+			With("feed_http_status", fd.HttpStatus, "elapsed_ms", time.Now().Sub(start).Milliseconds()).
+			Info("feed_change_committed")
 	}
 	return nil
 }

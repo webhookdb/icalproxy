@@ -2,6 +2,8 @@ package db_test
 
 import (
 	"context"
+	"encoding/json"
+	"github.com/jackc/pgx/v5"
 	"github.com/lithictech/go-aperitif/v2/logctx"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -36,27 +38,35 @@ var _ = Describe("db", func() {
 			Expect(db.Migrate(ctx, ag.DB)).To(Succeed())
 		})
 	})
-	Describe("FetchConditionalRow", func() {
+	Describe("FetchFeedRow", func() {
 		It("returns the row if it exists", func() {
-			_, err := ag.DB.Exec(ctx, `INSERT INTO icalproxy_feeds_v1(url, url_host, checked_at, contents_md5, contents_last_modified, contents_size)
-VALUES ('https://localhost/feed', 'LOCALHOST', now(), 'abc123', now(), 5)`)
-			Expect(err).ToNot(HaveOccurred())
-			r, err := db.FetchConditionalRow(ag.DB, ctx, fp.Must(url.Parse("https://localhost/feed")))
+			Expect(db.CommitFeed(ag.DB, ctx, &feed.Feed{
+				Url:         fp.Must(url.Parse("https://localhost/feed")),
+				HttpHeaders: make(map[string]string),
+				HttpStatus:  200,
+				Body:        []byte("hello"),
+				MD5:         "abc123",
+				FetchedAt:   time.Now(),
+			})).To(Succeed())
+			r, err := db.FetchFeedRow(ag.DB, ctx, fp.Must(url.Parse("https://localhost/feed")))
 			Expect(err).ToNot(HaveOccurred())
 			Expect(r.ContentsMD5).To(BeEquivalentTo("abc123"))
 		})
 		It("returns nil if the row does not exist", func() {
-			r, err := db.FetchConditionalRow(ag.DB, ctx, fp.Must(url.Parse("https://localhost/feed")))
+			r, err := db.FetchFeedRow(ag.DB, ctx, fp.Must(url.Parse("https://localhost/feed")))
 			Expect(err).ToNot(HaveOccurred())
 			Expect(r).To(BeNil())
 		})
 	})
 	Describe("FetchContentsAsFeed", func() {
 		It("returns the row", func() {
-			Expect(db.CommitFeed(ag.DB, ctx, fp.Must(url.Parse("https://localhost/feed")), &feed.Feed{
-				Body:      []byte("hello"),
-				MD5:       "abc123",
-				FetchedAt: time.Now(),
+			Expect(db.CommitFeed(ag.DB, ctx, &feed.Feed{
+				Url:         fp.Must(url.Parse("https://localhost/feed")),
+				HttpHeaders: make(map[string]string),
+				HttpStatus:  200,
+				Body:        []byte("hello"),
+				MD5:         "abc123",
+				FetchedAt:   time.Now(),
 			})).To(Succeed())
 			r, err := db.FetchContentsAsFeed(ag.DB, ctx, fp.Must(url.Parse("https://localhost/feed")))
 			Expect(err).ToNot(HaveOccurred())
@@ -67,41 +77,205 @@ VALUES ('https://localhost/feed', 'LOCALHOST', now(), 'abc123', now(), 5)`)
 			Expect(err).To(MatchError(ContainSubstring("no rows in result set")))
 		})
 		It("errors if only the content row does not exist", func() {
-			_, err := ag.DB.Exec(ctx, `INSERT INTO icalproxy_feeds_v1(url, url_host, checked_at, contents_md5, contents_last_modified, contents_size)
-VALUES ('https://localhost/feed', 'LOCALHOST', now(), 'abc123', now(), 5)`)
+			_, err := ag.DB.Exec(ctx, `INSERT INTO icalproxy_feeds_v1(url, url_host, checked_at, contents_md5, contents_last_modified, contents_size, fetch_status, fetch_headers)
+VALUES ('https://localhost/feed', 'LOCALHOST', now(), 'abc123', now(), 5, 200, '{}')`)
 			Expect(err).ToNot(HaveOccurred())
 			_, err = db.FetchContentsAsFeed(ag.DB, ctx, fp.Must(url.Parse("https://localhost/feed")))
 			Expect(err).To(MatchError(ContainSubstring("no rows in result set")))
 		})
 	})
+
 	Describe("CommitFeed", func() {
-		It("sets fields from the passed in feed", func() {
+		It("inserts and upserts fields from the passed in feed", func() {
 			t := time.Date(2020, 1, 1, 0, 0, 0, 999999, time.UTC)
-			Expect(db.CommitFeed(ag.DB, ctx, fp.Must(url.Parse("https://localhost/feed")), &feed.Feed{
-				Body:      []byte("hello"),
-				MD5:       "abc123",
-				FetchedAt: t,
+			// Make sure the fetch time is truncated to the nearest second, since that is what HTTP supports.
+			tTrunc := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+			Expect(db.CommitFeed(ag.DB, ctx, &feed.Feed{
+				Url:         fp.Must(url.Parse("https://localhost/feed")),
+				HttpHeaders: map[string]string{"X": "1"},
+				HttpStatus:  200,
+				Body:        []byte("version1"),
+				MD5:         "version1hash",
+				FetchedAt:   t,
 			})).To(Succeed())
-			var checkedAt time.Time
-			var md5 string
-			Expect(ag.DB.QueryRow(ctx, `SELECT contents_md5, checked_at FROM icalproxy_feeds_v1`).Scan(&md5, &checkedAt)).To(Succeed())
-			Expect(checkedAt.UTC().Format(time.RFC3339Nano)).To(Equal("2020-01-01T00:00:00Z"))
-			Expect(md5).To(BeEquivalentTo("abc123"))
+			rowv1 := fp.Must(pgx.CollectExactlyOneRow[feedRow](
+				fp.Must(ag.DB.Query(ctx, `SELECT * FROM icalproxy_feeds_v1 WHERE url = 'https://localhost/feed'`)),
+				pgx.RowToStructByName[feedRow],
+			))
+			Expect(rowv1).To(And(
+				HaveField("Url", "https://localhost/feed"),
+				HaveField("UrlHost", "LOCALHOST"),
+				HaveField("CheckedAt", BeTemporally("==", tTrunc)),
+				HaveField("ContentsMD5", "version1hash"),
+				HaveField("ContentsLastModified", BeTemporally("==", tTrunc)),
+				HaveField("ContentsSize", 8),
+				HaveField("FetchStatus", 200),
+				HaveField("FetchHeaders", BeEquivalentTo(`{"X": "1"}`)),
+				HaveField("FetchErrorBody", BeEmpty()),
+			))
+
+			// Update and check all fields
+			t2 := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+			Expect(db.CommitFeed(ag.DB, ctx, &feed.Feed{
+				Url:         fp.Must(url.Parse("https://localhost/feed")),
+				HttpHeaders: map[string]string{"X": "11"},
+				HttpStatus:  201,
+				Body:        []byte("version2X"),
+				MD5:         "version2hash",
+				FetchedAt:   t2,
+			})).To(Succeed())
+			rowv2 := fp.Must(pgx.CollectExactlyOneRow[feedRow](
+				fp.Must(ag.DB.Query(ctx, `SELECT * FROM icalproxy_feeds_v1 WHERE url = 'https://localhost/feed'`)),
+				pgx.RowToStructByName[feedRow],
+			))
+			Expect(rowv2).To(And(
+				HaveField("Url", "https://localhost/feed"),
+				HaveField("UrlHost", "LOCALHOST"),
+				HaveField("CheckedAt", BeTemporally("==", t2)),
+				HaveField("ContentsMD5", "version2hash"),
+				HaveField("ContentsLastModified", BeTemporally("==", t2)),
+				HaveField("ContentsSize", 9),
+				HaveField("FetchStatus", 201),
+				HaveField("FetchHeaders", BeEquivalentTo(`{"X": "11"}`)),
+				HaveField("FetchErrorBody", BeEmpty()),
+			))
 		})
-		It("upserts fields", func() {
-			Expect(db.CommitFeed(ag.DB, ctx, fp.Must(url.Parse("https://localhost/feed")), &feed.Feed{
-				Body:      []byte("hello"),
-				MD5:       "call1",
-				FetchedAt: time.Now(),
+		It("inserts and upserts field from an error response", func() {
+			t := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+			Expect(db.CommitFeed(ag.DB, ctx, &feed.Feed{
+				Url:         fp.Must(url.Parse("https://localhost/feed")),
+				HttpHeaders: map[string]string{"X": "1"},
+				HttpStatus:  400,
+				Body:        []byte("someerror"),
+				MD5:         "version1hash",
+				FetchedAt:   t,
 			})).To(Succeed())
-			Expect(db.CommitFeed(ag.DB, ctx, fp.Must(url.Parse("https://localhost/feed")), &feed.Feed{
-				Body:      []byte("hello"),
-				MD5:       "call2",
-				FetchedAt: time.Now(),
+			rowv1 := fp.Must(pgx.CollectExactlyOneRow[feedRow](
+				fp.Must(ag.DB.Query(ctx, `SELECT * FROM icalproxy_feeds_v1 WHERE url = 'https://localhost/feed'`)),
+				pgx.RowToStructByName[feedRow],
+			))
+			Expect(rowv1).To(And(
+				HaveField("Url", "https://localhost/feed"),
+				HaveField("UrlHost", "LOCALHOST"),
+				HaveField("CheckedAt", BeTemporally("==", t)),
+				HaveField("ContentsMD5", ""),
+				HaveField("ContentsLastModified", BeTemporally("==", t)),
+				HaveField("ContentsSize", 0),
+				HaveField("FetchStatus", 400),
+				HaveField("FetchHeaders", BeEquivalentTo(`{"X": "1"}`)),
+				HaveField("FetchErrorBody", BeEquivalentTo("someerror")),
+			))
+
+			// Update and check all fields
+			t2 := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+			Expect(db.CommitFeed(ag.DB, ctx, &feed.Feed{
+				Url:         fp.Must(url.Parse("https://localhost/feed")),
+				HttpHeaders: map[string]string{"X": "11"},
+				HttpStatus:  401,
+				Body:        []byte("error2"),
+				MD5:         "version2hash",
+				FetchedAt:   t2,
 			})).To(Succeed())
-			var md5 string
-			Expect(ag.DB.QueryRow(ctx, `SELECT contents_md5 FROM icalproxy_feeds_v1`).Scan(&md5)).To(Succeed())
-			Expect(md5).To(BeEquivalentTo("call2"))
+			rowv2 := fp.Must(pgx.CollectExactlyOneRow[feedRow](
+				fp.Must(ag.DB.Query(ctx, `SELECT * FROM icalproxy_feeds_v1 WHERE url = 'https://localhost/feed'`)),
+				pgx.RowToStructByName[feedRow],
+			))
+			Expect(rowv2).To(And(
+				HaveField("Url", "https://localhost/feed"),
+				HaveField("UrlHost", "LOCALHOST"),
+				HaveField("CheckedAt", BeTemporally("==", t2)),
+				HaveField("ContentsMD5", ""),
+				// last modified does NOT get updated
+				HaveField("ContentsLastModified", BeTemporally("==", t)),
+				HaveField("ContentsSize", 0),
+				HaveField("FetchStatus", 401),
+				HaveField("FetchHeaders", BeEquivalentTo(`{"X": "11"}`)),
+				HaveField("FetchErrorBody", BeEquivalentTo("error2")),
+			))
+		})
+		It("will clear error fields on a successful fetch", func() {
+			t := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+			t2 := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+			Expect(db.CommitFeed(ag.DB, ctx, &feed.Feed{
+				Url:         fp.Must(url.Parse("https://localhost/feed")),
+				HttpHeaders: map[string]string{"X": "1"},
+				HttpStatus:  400,
+				Body:        []byte("someerror"),
+				MD5:         "version1hash",
+				FetchedAt:   t,
+			})).To(Succeed())
+			Expect(db.CommitFeed(ag.DB, ctx, &feed.Feed{
+				Url:         fp.Must(url.Parse("https://localhost/feed")),
+				HttpHeaders: map[string]string{"X": "11"},
+				HttpStatus:  201,
+				Body:        []byte("version2X"),
+				MD5:         "version2hash",
+				FetchedAt:   t2,
+			})).To(Succeed())
+
+			row := fp.Must(pgx.CollectExactlyOneRow[feedRow](
+				fp.Must(ag.DB.Query(ctx, `SELECT * FROM icalproxy_feeds_v1 WHERE url = 'https://localhost/feed'`)),
+				pgx.RowToStructByName[feedRow],
+			))
+			Expect(row).To(And(
+				HaveField("Url", "https://localhost/feed"),
+				HaveField("UrlHost", "LOCALHOST"),
+				HaveField("CheckedAt", BeTemporally("==", t2)),
+				HaveField("ContentsMD5", "version2hash"),
+				HaveField("ContentsLastModified", BeTemporally("==", t2)),
+				HaveField("ContentsSize", 9),
+				HaveField("FetchStatus", 201),
+				HaveField("FetchHeaders", BeEquivalentTo(`{"X": "11"}`)),
+				HaveField("FetchErrorBody", BeEmpty()),
+			))
+		})
+		It("will clear success fields on an error fetch", func() {
+			t := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+			t2 := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+			Expect(db.CommitFeed(ag.DB, ctx, &feed.Feed{
+				Url:         fp.Must(url.Parse("https://localhost/feed")),
+				HttpHeaders: map[string]string{"X": "1"},
+				HttpStatus:  200,
+				Body:        []byte("version1"),
+				MD5:         "version1hash",
+				FetchedAt:   t,
+			})).To(Succeed())
+			Expect(db.CommitFeed(ag.DB, ctx, &feed.Feed{
+				Url:         fp.Must(url.Parse("https://localhost/feed")),
+				HttpHeaders: map[string]string{"X": "11"},
+				HttpStatus:  401,
+				Body:        []byte("error2"),
+				MD5:         "version2hash",
+				FetchedAt:   t2,
+			})).To(Succeed())
+			row := fp.Must(pgx.CollectExactlyOneRow[feedRow](
+				fp.Must(ag.DB.Query(ctx, `SELECT * FROM icalproxy_feeds_v1 WHERE url = 'https://localhost/feed'`)),
+				pgx.RowToStructByName[feedRow],
+			))
+			Expect(row).To(And(
+				HaveField("Url", "https://localhost/feed"),
+				HaveField("UrlHost", "LOCALHOST"),
+				HaveField("CheckedAt", BeTemporally("==", t2)),
+				HaveField("ContentsMD5", "version1hash"),
+				HaveField("ContentsLastModified", BeTemporally("==", t)),
+				HaveField("ContentsSize", 8),
+				HaveField("FetchStatus", 401),
+				HaveField("FetchHeaders", BeEquivalentTo(`{"X": "11"}`)),
+				HaveField("FetchErrorBody", BeEquivalentTo("error2")),
+			))
 		})
 	})
 })
+
+type feedRow struct {
+	Id                   int64
+	Url                  string
+	UrlHost              string
+	CheckedAt            time.Time
+	ContentsMD5          string
+	ContentsLastModified time.Time
+	ContentsSize         int
+	FetchStatus          int
+	FetchHeaders         json.RawMessage
+	FetchErrorBody       []byte
+}
