@@ -2,10 +2,10 @@ package refresher
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"github.com/jackc/pgx/v5"
 	"github.com/lithictech/go-aperitif/v2/logctx"
+	"github.com/lithictech/go-aperitif/v2/parallel"
 	"github.com/webhookdb/icalproxy/appglobals"
 	"github.com/webhookdb/icalproxy/db"
 	"github.com/webhookdb/icalproxy/internal"
@@ -24,10 +24,9 @@ func New(ag *appglobals.AppGlobals) *Refresher {
 	return r
 }
 
-func StartScheduler(ctx context.Context, ag *appglobals.AppGlobals) {
+func StartScheduler(ctx context.Context, r *Refresher) {
 	logctx.Logger(ctx).Info("starting_scheduler")
 	go func() {
-		r := New(ag)
 		for {
 			logctx.Logger(ctx).Info("running_scheduler")
 			if err := r.Run(ctx); err != nil {
@@ -66,27 +65,32 @@ func (r *Refresher) Run(ctx context.Context) error {
 
 func (r *Refresher) buildSelectQuery() string {
 	now := time.Now().UTC()
-	nowFmt := types.FormatHttpTime(now)
-	whenStatements := make([]string, 0, len(r.ag.Config.IcalTTLMap))
-	for host, ttl := range r.ag.Config.IcalTTLMap {
-		if host == "" {
-			continue
+	nowFmt := now.Format(time.RFC3339)
+	defaultTTLMillis := time.Duration(proxy.DefaultTTL).Milliseconds()
+	var checkedAtCond string
+	if len(r.ag.Config.IcalTTLMap) > 0 {
+		whenStatements := make([]string, 0, len(r.ag.Config.IcalTTLMap))
+		for host, ttl := range r.ag.Config.IcalTTLMap {
+			if host == "" {
+				continue
+			}
+			stmt := fmt.Sprintf(
+				"WHEN url_host LIKE '%%' || '%s' THEN '%s'::timestamptz - '%dms'::interval",
+				host, nowFmt, time.Duration(ttl).Milliseconds(),
+			)
+			whenStatements = append(whenStatements, stmt)
 		}
-		stmt := fmt.Sprintf(
-			"WHEN url_host LIKE '%%' || '%s' THEN '%s'::timestamptz - '%dms'::interval",
-			host, nowFmt, time.Duration(ttl).Milliseconds(),
-		)
-		whenStatements = append(whenStatements, stmt)
+		whenStatements = append(whenStatements, fmt.Sprintf("ELSE '%s'::timestamptz - '%dms'::interval", nowFmt, defaultTTLMillis))
+		checkedAtCond = fmt.Sprintf("(CASE\n%s\nEND)", strings.Join(whenStatements, "\n"))
+	} else {
+		checkedAtCond = fmt.Sprintf("'%s'::timestamptz - '%dms'::interval", nowFmt, defaultTTLMillis)
 	}
-	whenStatements = append(whenStatements, fmt.Sprintf("ELSE '%s'::timestamptz - '%dms'::interval", nowFmt, proxy.DefaultTTL))
 	q := fmt.Sprintf(`SELECT url, contents_md5
 FROM icalproxy_feeds_v1
-WHERE checked_at < (CASE
-%s
-END)
+WHERE checked_at < %s
 LIMIT %d
 FOR UPDATE SKIP LOCKED
-`, strings.Join(whenStatements, "\n"), r.ag.Config.RefreshPageSize)
+`, checkedAtCond, r.ag.Config.RefreshPageSize)
 	return q
 }
 
@@ -114,18 +118,15 @@ func (r *Refresher) processChunk(ctx context.Context) (int, error) {
 		if len(rowsToProcess) == 0 {
 			return nil
 		}
-		count = len(rowsToProcess)
-		wg := new(sync.WaitGroup)
-		wg.Add(len(rowsToProcess))
-		errs := make([]error, len(rowsToProcess))
-		for idx := range rowsToProcess {
-			go func(i int) {
-				defer wg.Done()
-				errs[i] = r.processUrl(ctx, rowsToProcess[i])
-			}(idx)
-		}
-		wg.Wait()
-		return errors.Join(errs...)
+		// We are processing in multiple threads but can only call the transaction commit
+		// with one thread at a time. Guard it with a mutex, it's a lot simpler
+		// than rewriting this for producer/consumer for minimal benefit of lock-free.
+		txMux := &sync.Mutex{}
+		perr := parallel.ForEach(len(rowsToProcess), len(rowsToProcess), func(idx int) error {
+			return r.processUrl(ctx, tx, txMux, rowsToProcess[idx])
+		})
+		count += len(rowsToProcess)
+		return perr
 	})
 	return count, err
 }
@@ -135,7 +136,7 @@ type RowToProcess struct {
 	MD5 types.MD5Hash
 }
 
-func (r *Refresher) processUrl(ctx context.Context, rtp RowToProcess) error {
+func (r *Refresher) processUrl(ctx context.Context, tx pgx.Tx, txMux *sync.Mutex, rtp RowToProcess) error {
 	ctx = logctx.AddTo(ctx, "url", rtp.Url)
 	uri, err := url.Parse(rtp.Url)
 	if err != nil {
@@ -143,12 +144,15 @@ func (r *Refresher) processUrl(ctx context.Context, rtp RowToProcess) error {
 	}
 	feed, err := proxy.Fetch(ctx, uri)
 	if err != nil {
-		panic("handle fetch error by updating fetch time")
+		//panic("handle fetch error by updating fetch time: " + err.Error())
+		return err
 	}
 	if feed.MD5 == rtp.MD5 {
 		logctx.Logger(ctx).Info("feed_unchanged")
 	} else {
-		if err := db.CommitFeed(r.ag.DB, ctx, uri, feed); err != nil {
+		txMux.Lock()
+		defer txMux.Unlock()
+		if err := db.CommitFeed(tx, ctx, uri, feed); err != nil {
 			logctx.Logger(ctx).With("error", err).Error("refresh_commit_feed_error")
 		}
 		logctx.Logger(ctx).Info("feed_change_committed")

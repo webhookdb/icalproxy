@@ -27,10 +27,7 @@ var _ = Describe("db", func() {
 
 	BeforeEach(func() {
 		ag = fp.Must(appglobals.New(ctx, fp.Must(config.LoadConfig())))
-	})
-
-	AfterEach(func() {
-		Expect(db.Truncate(ctx, ag.DB)).To(Succeed())
+		Expect(db.TruncateLocal(ctx, ag.DB)).To(Succeed())
 	})
 
 	Describe("Migrate", func() {
@@ -42,14 +39,14 @@ var _ = Describe("db", func() {
 	Describe("FetchConditionalRow", func() {
 		It("returns the row if it exists", func() {
 			_, err := ag.DB.Exec(ctx, `INSERT INTO icalproxy_feeds_v1(url, url_host, checked_at, contents, contents_md5, contents_last_modified, contents_size)
-VALUES ('https://a.b.c', 'ABC', now(), 'vevent', 'abc123', now(), 5)`)
+VALUES ('https://localhost/feed', 'LOCALHOST', now(), 'vevent', 'abc123', now(), 5)`)
 			Expect(err).ToNot(HaveOccurred())
-			r, err := db.FetchConditionalRow(ag.DB, ctx, fp.Must(url.Parse("https://a.b.c")))
+			r, err := db.FetchConditionalRow(ag.DB, ctx, fp.Must(url.Parse("https://localhost/feed")))
 			Expect(err).ToNot(HaveOccurred())
 			Expect(r.ContentsMD5).To(BeEquivalentTo("abc123"))
 		})
 		It("returns nil if the row does not exist", func() {
-			r, err := db.FetchConditionalRow(ag.DB, ctx, fp.Must(url.Parse("https://a.b.c")))
+			r, err := db.FetchConditionalRow(ag.DB, ctx, fp.Must(url.Parse("https://localhost/feed")))
 			Expect(err).ToNot(HaveOccurred())
 			Expect(r).To(BeNil())
 		})
@@ -57,21 +54,21 @@ VALUES ('https://a.b.c', 'ABC', now(), 'vevent', 'abc123', now(), 5)`)
 	Describe("FetchContentsAsFeed", func() {
 		It("returns the row", func() {
 			_, err := ag.DB.Exec(ctx, `INSERT INTO icalproxy_feeds_v1(url, url_host, checked_at, contents, contents_md5, contents_last_modified, contents_size)
-VALUES ('https://a.b.c', 'ABC', now(), 'vevent', 'abc123', now(), 5)`)
+VALUES ('https://localhost/feed', 'LOCALHOST', now(), 'vevent', 'abc123', now(), 5)`)
 			Expect(err).ToNot(HaveOccurred())
-			r, err := db.FetchContentsAsFeed(ag.DB, ctx, fp.Must(url.Parse("https://a.b.c")))
+			r, err := db.FetchContentsAsFeed(ag.DB, ctx, fp.Must(url.Parse("https://localhost/feed")))
 			Expect(err).ToNot(HaveOccurred())
 			Expect(r.MD5).To(BeEquivalentTo("abc123"))
 		})
 		It("errors if the row does not exist", func() {
-			_, err := db.FetchContentsAsFeed(ag.DB, ctx, fp.Must(url.Parse("https://a.b.c")))
+			_, err := db.FetchContentsAsFeed(ag.DB, ctx, fp.Must(url.Parse("https://localhost/feed")))
 			Expect(err).To(MatchError(ContainSubstring("no rows in result set")))
 		})
 	})
 	Describe("CommitFeed", func() {
 		It("sets fields from the passed in feed", func() {
 			t := time.Date(2020, 1, 1, 0, 0, 0, 999999, time.UTC)
-			Expect(db.CommitFeed(ag.DB, ctx, fp.Must(url.Parse("https://a.b.c")), &proxy.Feed{
+			Expect(db.CommitFeed(ag.DB, ctx, fp.Must(url.Parse("https://localhost/feed")), &proxy.Feed{
 				Body:      []byte("hello"),
 				MD5:       "abc123",
 				FetchedAt: t,
@@ -83,12 +80,12 @@ VALUES ('https://a.b.c', 'ABC', now(), 'vevent', 'abc123', now(), 5)`)
 			Expect(md5).To(BeEquivalentTo("abc123"))
 		})
 		It("upserts fields", func() {
-			Expect(db.CommitFeed(ag.DB, ctx, fp.Must(url.Parse("https://a.b.c")), &proxy.Feed{
+			Expect(db.CommitFeed(ag.DB, ctx, fp.Must(url.Parse("https://localhost/feed")), &proxy.Feed{
 				Body:      []byte("hello"),
 				MD5:       "call1",
 				FetchedAt: time.Now(),
 			})).To(Succeed())
-			Expect(db.CommitFeed(ag.DB, ctx, fp.Must(url.Parse("https://a.b.c")), &proxy.Feed{
+			Expect(db.CommitFeed(ag.DB, ctx, fp.Must(url.Parse("https://localhost/feed")), &proxy.Feed{
 				Body:      []byte("hello"),
 				MD5:       "call2",
 				FetchedAt: time.Now(),

@@ -69,12 +69,18 @@ func Fetch(ctx context.Context, url *url.URL) (*Feed, error) {
 			Body:       b,
 		}
 	}
-	f := &Feed{}
-	f.Body = b
-	f.FetchedAt = now
+	f := NewFeed(b, now)
+	return f, nil
+}
+
+func NewFeed(b []byte, now time.Time) *Feed {
+	f := &Feed{
+		Body:      b,
+		FetchedAt: now,
+	}
 	hash := md5.Sum(b)
 	f.MD5 = types.MD5Hash(hex.EncodeToString(hash[:]))
-	return f, nil
+	return f
 }
 
 var httpClient *http.Client

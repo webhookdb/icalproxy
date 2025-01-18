@@ -124,11 +124,10 @@ var _ = Describe("server", func() {
 		})
 		Describe("with a cached feed", func() {
 			BeforeEach(func() {
-				Expect(db.CommitFeed(ag.DB, ctx, originFeedUri, &proxy.Feed{
-					Body:      []byte("VEVENT"),
-					MD5:       "a2ec0c77b7bea23455185bcc75535bf7",
-					FetchedAt: time.Now(),
-				})).To(Succeed())
+				Expect(db.CommitFeed(ag.DB, ctx, originFeedUri, proxy.NewFeed(
+					[]byte("VEVENT"),
+					time.Now(),
+				))).To(Succeed())
 			})
 			It("returns 304 if the feed has not been modified and the caller passes if-none-match headers", func() {
 				req := NewRequest("GET", serverRequestUrl, nil)
@@ -160,11 +159,10 @@ var _ = Describe("server", func() {
 				Expect(rr).To(HaveResponseCode(200))
 			})
 			It("fetches from origin and serves from cache if the TTL has expired", func() {
-				Expect(db.CommitFeed(ag.DB, ctx, originFeedUri, &proxy.Feed{
-					Body:      []byte("VERSION1"),
-					MD5:       "hash1",
-					FetchedAt: time.Now().Add(-5 * time.Hour),
-				})).To(Succeed())
+				Expect(db.CommitFeed(ag.DB, ctx, originFeedUri, proxy.NewFeed(
+					[]byte("VERSION1"),
+					time.Now().Add(-5*time.Hour),
+				))).To(Succeed())
 				origin.AppendHandlers(
 					ghttp.CombineHandlers(
 						ghttp.VerifyRequest("GET", "/feed.ics", ""),

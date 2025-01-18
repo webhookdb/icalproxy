@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/webhookdb/icalproxy/pgxt"
 	"github.com/webhookdb/icalproxy/proxy"
 	"github.com/webhookdb/icalproxy/types"
 	"net/url"
@@ -65,7 +66,7 @@ func FetchContentsAsFeed(db *pgxpool.Pool, ctx context.Context, uri *url.URL) (*
 	return &r, nil
 }
 
-func CommitFeed(db *pgxpool.Pool, ctx context.Context, uri *url.URL, feed *proxy.Feed) error {
+func CommitFeed(db pgxt.IExec, ctx context.Context, uri *url.URL, feed *proxy.Feed) error {
 	query := `INSERT INTO icalproxy_feeds_v1 
 (url, url_host, checked_at, contents, contents_md5, contents_last_modified, contents_size)
 VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -88,8 +89,10 @@ ON CONFLICT (url) DO UPDATE SET
 	return nil
 }
 
-func Truncate(ctx context.Context, db *pgxpool.Pool) error {
-	_, err := db.Exec(ctx, `TRUNCATE TABLE icalproxy_feeds_v1`)
+// TruncateLocal deletes localhost and 127.0.0.1 urls,
+// which are usually only generated during testing.
+func TruncateLocal(ctx context.Context, db *pgxpool.Pool) error {
+	_, err := db.Exec(ctx, `DELETE FROM icalproxy_feeds_v1 WHERE url_host='127001' OR url_host='LOCALHOST'`)
 	if err != nil {
 		return err
 	}
