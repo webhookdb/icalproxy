@@ -121,7 +121,13 @@ WHERE url = $1`
 }
 
 type CommitFeedOptions struct {
+	// WebhookPending should be true to set the webhook_pending column to true on update/upsert.
+	// Since the initial insert is always via HTTP request (not a refresh),
+	// there's no point sending a webhook on insert.
 	WebhookPending bool
+	// WebhookPendingOnInsert is true to set the webhook_pending column true on insert.
+	// Generally only useful during testing.
+	WebhookPendingOnInsert bool
 }
 
 func (db *DB) CommitFeed(ctx context.Context, feed *feed.Feed, opts *CommitFeedOptions) error {
@@ -157,8 +163,8 @@ ON CONFLICT (url) DO UPDATE SET
 		return nil
 	}
 	const feedQuery = `INSERT INTO icalproxy_feeds_v1 
-(url, url_host_rev, checked_at, fetch_status, fetch_headers, contents_md5, contents_last_modified, contents_size, fetch_error_body)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, '')
+(url, url_host_rev, checked_at, fetch_status, fetch_headers, contents_md5, contents_last_modified, contents_size, fetch_error_body, webhook_pending)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, '', $9)
 ON CONFLICT (url) DO UPDATE SET
 	url_host_rev=EXCLUDED.url_host_rev,
 	checked_at=EXCLUDED.checked_at,
@@ -168,12 +174,8 @@ ON CONFLICT (url) DO UPDATE SET
 	contents_last_modified=EXCLUDED.contents_last_modified,
 	contents_size=EXCLUDED.contents_size,
 	fetch_error_body='',
-	webhook_pending=$9
+	webhook_pending=$10
 RETURNING id`
-	const contentsQuery = `INSERT INTO icalproxy_feed_contents_v1
-(feed_id, contents)
-VALUES ($1, $2)
-ON CONFLICT (feed_id) DO UPDATE SET contents = EXCLUDED.contents`
 	feedArgs := []any{
 		feed.Url.String(),
 		urlHost,
@@ -183,12 +185,17 @@ ON CONFLICT (feed_id) DO UPDATE SET contents = EXCLUDED.contents`
 		feed.MD5,
 		fetchedTrunc,
 		len(feed.Body),
+		opts.WebhookPendingOnInsert,
 		opts.WebhookPending,
 	}
 	var insertedId int64
 	if err := db.conn.QueryRow(ctx, feedQuery, feedArgs...).Scan(&insertedId); err != nil {
 		return internal.ErrWrap(err, "unable to upsert feed")
 	}
+	const contentsQuery = `INSERT INTO icalproxy_feed_contents_v1
+(feed_id, contents)
+VALUES ($1, $2)
+ON CONFLICT (feed_id) DO UPDATE SET contents = EXCLUDED.contents`
 	if err := db.exec(ctx, contentsQuery, insertedId, feed.Body); err != nil {
 		return internal.ErrWrap(err, "unable to upsert contents")
 	}

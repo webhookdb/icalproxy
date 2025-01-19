@@ -307,6 +307,25 @@ VALUES ('https://localhost/feed', 'TSOHLACOL', now(), 'abc123', now(), 5, 200, '
 				HaveField("WebhookPending", true),
 			))
 		})
+		It("uses WebhookPendingInsert when inserting", func() {
+			ag.Config.WebhookUrl = "https://api.webhookdb.com/v1/webhooks/icalproxy"
+			fd := &feed.Feed{
+				Url:         fp.Must(url.Parse("https://localhost/feed")),
+				HttpHeaders: map[string]string{"X": "1"},
+				HttpStatus:  200,
+				Body:        []byte("version1"),
+				MD5:         "version1hash",
+				FetchedAt:   time.Now(),
+			}
+			Expect(d.CommitFeed(ctx, fd, &db.CommitFeedOptions{WebhookPendingOnInsert: true})).To(Succeed())
+			rowinsert := fp.Must(pgx.CollectExactlyOneRow[FeedRow](
+				fp.Must(ag.DB.Query(ctx, `SELECT * FROM icalproxy_feeds_v1 WHERE url = 'https://localhost/feed'`)),
+				pgx.RowToStructByName[FeedRow],
+			))
+			Expect(rowinsert).To(And(
+				HaveField("WebhookPending", true),
+			))
+		})
 	})
 	Describe("CommitUnchanged", func() {
 		It("bumps the checked_at time", func() {

@@ -56,17 +56,14 @@ var _ = Describe("notifier", func() {
 			// Set up 125 rows so we make 2 webhook requests
 			for i := 0; i < 125; i++ {
 				u := "https://notifiertest.localhost/feed-" + strconv.Itoa(i)
-				for j := 0; j < 2; j++ {
-					// Pending webhook only gets set on update, so insert then upsert/update
-					Expect(db.New(ag.DB).CommitFeed(ctx,
-						feed.New(
-							fp.Must(url.Parse(u)),
-							make(map[string]string),
-							200,
-							[]byte("FEED"),
-							time.Now(),
-						), &db.CommitFeedOptions{WebhookPending: true})).To(Succeed())
-				}
+				Expect(db.New(ag.DB).CommitFeed(ctx,
+					feed.New(
+						fp.Must(url.Parse(u)),
+						make(map[string]string),
+						200,
+						[]byte("FEED"),
+						time.Now(),
+					), &db.CommitFeedOptions{WebhookPendingOnInsert: true})).To(Succeed())
 			}
 			// Webhook is not pending, so this gets no http handler
 			Expect(db.New(ag.DB).CommitFeed(ctx,
@@ -109,6 +106,31 @@ var _ = Describe("notifier", func() {
 				pgx.RowToStructByName[FeedRow],
 			))
 			Expect(row).To(HaveField("WebhookPending", false))
+		})
+		It("errors if the webhook call fails", func() {
+			ag.Config.WebhookUrl = webhookSrv.URL() + "/wh"
+			Expect(db.New(ag.DB).CommitFeed(ctx,
+				feed.New(
+					fp.Must(url.Parse("https://notifiertest.localhost/feed")),
+					make(map[string]string),
+					200,
+					[]byte("FEED"),
+					time.Now(),
+				), &db.CommitFeedOptions{WebhookPendingOnInsert: true})).To(Succeed())
+			webhookSrv.AppendHandlers(
+				ghttp.CombineHandlers(
+					ghttp.VerifyRequest("POST", "/wh", ""),
+					ghttp.RespondWith(503, ""),
+				),
+			)
+
+			Expect(notifier.New(ag).Run(ctx)).To(MatchError(ContainSubstring("error sending webhook: 503")))
+
+			row := fp.Must(pgx.CollectExactlyOneRow[FeedRow](
+				fp.Must(ag.DB.Query(ctx, `SELECT * FROM icalproxy_feeds_v1 WHERE url = 'https://notifiertest.localhost/feed'`)),
+				pgx.RowToStructByName[FeedRow],
+			))
+			Expect(row).To(HaveField("WebhookPending", true))
 		})
 	})
 })
