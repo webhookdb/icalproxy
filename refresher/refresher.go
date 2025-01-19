@@ -105,7 +105,7 @@ func (r *Refresher) SelectRowsToProcess(ctx context.Context, tx pgx.Tx) ([]RowTo
 func (r *Refresher) ExplainSelectQuery(ctx context.Context) (string, error) {
 	var lines []string
 	err := pgxt.WithTransaction(ctx, r.ag.DB, func(tx pgx.Tx) error {
-		if _, err := tx.Exec(ctx, "SET enable_seqscan = 'off'"); err != nil {
+		if _, err := tx.Exec(ctx, "SET enable_seqscan = OFF; ANALYZE icalproxy_feeds_v1"); err != nil {
 			return err
 		}
 		lns, err := pgxt.GetScalars[string](ctx, r.ag.DB, "EXPLAIN ANALYZE "+r.selectQuery)
@@ -159,11 +159,14 @@ func (r *Refresher) processUrl(ctx context.Context, tx pgx.Tx, txMux *sync.Mutex
 	if err != nil {
 		return err
 	}
+	txMux.Lock()
+	defer txMux.Unlock()
 	if fd.MD5 == rtp.MD5 {
+		if err := db.CommitUnchanged(tx, ctx, fd); err != nil {
+			logctx.Logger(ctx).With("error", err).Error("refresh_commit_feed_error")
+		}
 		logctx.Logger(ctx).Info("feed_unchanged")
 	} else {
-		txMux.Lock()
-		defer txMux.Unlock()
 		if err := db.CommitFeed(tx, ctx, fd); err != nil {
 			logctx.Logger(ctx).With("error", err).Error("refresh_commit_feed_error")
 		}

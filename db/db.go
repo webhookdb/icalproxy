@@ -174,10 +174,21 @@ ON CONFLICT (feed_id) DO UPDATE SET contents = EXCLUDED.contents`
 	return nil
 }
 
+func CommitUnchanged(db CommitFeedDB, ctx context.Context, feed *feed.Feed) error {
+	fetchedTrunc := feed.FetchedAt.Truncate(time.Second)
+	const query = `UPDATE icalproxy_feeds_v1 SET checked_at = $1 WHERE url = $2`
+	if _, err := db.Exec(ctx, query, fetchedTrunc, feed.Url); err != nil {
+		return internal.ErrWrap(err, "unable to update feed")
+	}
+	return nil
+}
+
 // TruncateLocal deletes localhost and 127.0.0.1 urls,
 // which are usually only generated during testing.
 func TruncateLocal(ctx context.Context, db *pgxpool.Pool) error {
-	_, err := db.Exec(ctx, `DELETE FROM icalproxy_feeds_v1 WHERE url_host_rev=reverse('127001') OR url_host_rev=reverse('LOCALHOST')`)
+	_, err := db.Exec(ctx, `
+DELETE FROM icalproxy_feeds_v1
+WHERE starts_with(url_host_rev, reverse('127001')) OR starts_with(url_host_rev, reverse('LOCALHOST'))`)
 	if err != nil {
 		return err
 	}

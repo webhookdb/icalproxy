@@ -84,7 +84,6 @@ VALUES ('https://localhost/feed', 'TSOHLACOL', now(), 'abc123', now(), 5, 200, '
 			Expect(err).To(MatchError(ContainSubstring("no rows in result set")))
 		})
 	})
-
 	Describe("CommitFeed", func() {
 		It("inserts and upserts fields from the passed in feed", func() {
 			t := time.Date(2020, 1, 1, 0, 0, 0, 999999, time.UTC)
@@ -262,6 +261,31 @@ VALUES ('https://localhost/feed', 'TSOHLACOL', now(), 'abc123', now(), 5, 200, '
 				HaveField("FetchStatus", 401),
 				HaveField("FetchHeaders", BeEquivalentTo(`{"X": "11"}`)),
 				HaveField("FetchErrorBody", BeEquivalentTo("error2")),
+			))
+		})
+	})
+	Describe("CommitUnchanged", func() {
+		It("bumps the checked_at time", func() {
+			t := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+			fd := &feed.Feed{
+				Url:         fp.Must(url.Parse("https://localhost/feed")),
+				HttpHeaders: map[string]string{"X": "1"},
+				HttpStatus:  200,
+				Body:        []byte("version1"),
+				MD5:         "version1hash",
+				FetchedAt:   time.Now().Add(-time.Hour * 99999),
+			}
+			Expect(db.CommitFeed(ag.DB, ctx, fd)).To(Succeed())
+
+			fd.FetchedAt = t
+			Expect(db.CommitUnchanged(ag.DB, ctx, fd)).To(Succeed())
+			row := fp.Must(pgx.CollectExactlyOneRow[feedRow](
+				fp.Must(ag.DB.Query(ctx, `SELECT * FROM icalproxy_feeds_v1 WHERE url = 'https://localhost/feed'`)),
+				pgx.RowToStructByName[feedRow],
+			))
+			Expect(row).To(And(
+				HaveField("CheckedAt", BeTemporally("==", t)),
+				HaveField("ContentsMD5", "version1hash"),
 			))
 		})
 	})

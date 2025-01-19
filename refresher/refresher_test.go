@@ -126,6 +126,29 @@ var _ = Describe("refresher", func() {
 				HaveField("Body", BeEquivalentTo("errbody")),
 			))
 		})
+		It("commits unchanged rows", func() {
+			origin.AppendHandlers(
+				ghttp.CombineHandlers(
+					ghttp.VerifyRequest("GET", "/expired-ttl.ics", ""),
+					ghttp.RespondWith(200, "SAMEBODY"),
+				),
+			)
+			Expect(db.CommitFeed(ag.DB, ctx,
+				feed.New(
+					fp.Must(url.Parse(origin.URL()+"/expired-ttl.ics")),
+					make(map[string]string),
+					200,
+					[]byte("SAMEBODY"),
+					time.Now().Add(-5*time.Hour),
+				))).To(Succeed())
+
+			Expect(refresher.New(ag).Run(ctx)).To(Succeed())
+			row := fp.Must(db.FetchContentsAsFeed(ag.DB, ctx, fp.Must(url.Parse(origin.URL()+"/expired-ttl.ics"))))
+			Expect(row).To(And(
+				HaveField("Body", BeEquivalentTo("SAMEBODY")),
+				HaveField("FetchedAt", BeTemporally("~", time.Now(), time.Minute)),
+			))
+		})
 	})
 	Describe("SelectRowsToProcess", func() {
 		It("selects rows that have not been checked since the TTL for their host", func() {
@@ -134,30 +157,30 @@ var _ = Describe("refresher", func() {
 			// Assert we fetched the expired ones. Note that this checks the per-host expiration
 			// because for example the 45 minute feeds are expired for a 30 minute TTL but live for a 60 minute TTL.
 
-			ag.Config.IcalTTLMap["30MINCOM"] = types.TTL(30 * time.Minute)
-			ag.Config.IcalTTLMap["60MINCOM"] = types.TTL(60 * time.Minute)
+			ag.Config.IcalTTLMap["30MINLOCALHOST"] = types.TTL(30 * time.Minute)
+			ag.Config.IcalTTLMap["60MINLOCALHOST"] = types.TTL(60 * time.Minute)
 			hd := make(map[string]string)
 
 			Expect(db.CommitFeed(ag.DB, ctx,
-				feed.New(fp.Must(url.Parse("https://30min.com/15old")), hd, 200, []byte("ORIGINAL"), time.Now().Add(-15*time.Minute)),
+				feed.New(fp.Must(url.Parse("https://30min.localhost/15old")), hd, 200, []byte("ORIGINAL"), time.Now().Add(-15*time.Minute)),
 			)).To(Succeed())
 			Expect(db.CommitFeed(ag.DB, ctx,
-				feed.New(fp.Must(url.Parse("https://30min.com/45old")), hd, 200, []byte("ORIGINAL"), time.Now().Add(-45*time.Minute)),
+				feed.New(fp.Must(url.Parse("https://30min.localhost/45old")), hd, 200, []byte("ORIGINAL"), time.Now().Add(-45*time.Minute)),
 			)).To(Succeed())
 
 			Expect(db.CommitFeed(ag.DB, ctx,
-				feed.New(fp.Must(url.Parse("https://60min.com/45old")), hd, 200, []byte("ORIGINAL"), time.Now().Add(-45*time.Minute)),
+				feed.New(fp.Must(url.Parse("https://60min.localhost/45old")), hd, 200, []byte("ORIGINAL"), time.Now().Add(-45*time.Minute)),
 			)).To(Succeed())
 			Expect(db.CommitFeed(ag.DB, ctx,
-				feed.New(fp.Must(url.Parse("https://60min.com/75old")), hd, 200, []byte("ORIGINAL"), time.Now().Add(-75*time.Minute)),
+				feed.New(fp.Must(url.Parse("https://60min.localhost/75old")), hd, 200, []byte("ORIGINAL"), time.Now().Add(-75*time.Minute)),
 			)).To(Succeed())
 
 			Expect(pgxt.WithTransaction(ctx, ag.DB, func(tx pgx.Tx) error {
 				rows, err := refresher.New(ag).SelectRowsToProcess(ctx, tx)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(rows).To(ConsistOf(
-					HaveField("Url", "https://30min.com/45old"),
-					HaveField("Url", "https://60min.com/75old"),
+					HaveField("Url", "https://30min.localhost/45old"),
+					HaveField("Url", "https://60min.localhost/75old"),
 				))
 				return nil
 			})).To(Succeed())
