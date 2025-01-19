@@ -20,7 +20,6 @@ import (
 
 func New(ag *appglobals.AppGlobals) *Refresher {
 	r := &Refresher{ag: ag}
-	r.selectQuery = r.buildSelectQuery()
 	return r
 }
 
@@ -48,8 +47,7 @@ func StartScheduler(ctx context.Context, r *Refresher) {
 const schedulerInterval = 30 * time.Second
 
 type Refresher struct {
-	ag          *appglobals.AppGlobals
-	selectQuery string
+	ag *appglobals.AppGlobals
 }
 
 func (r *Refresher) Run(ctx context.Context) error {
@@ -63,8 +61,8 @@ func (r *Refresher) Run(ctx context.Context) error {
 	}
 }
 
-func (r *Refresher) buildSelectQuery() string {
-	now := time.Now().UTC()
+func (r *Refresher) buildSelectQuery(now time.Time) string {
+	now = now.UTC()
 	nowFmt := now.Format(time.RFC3339)
 	defaultTTLMillis := time.Duration(feed.DefaultTTL).Milliseconds()
 	conditions := make([]string, 0, len(r.ag.Config.IcalTTLMap))
@@ -92,7 +90,7 @@ FOR UPDATE SKIP LOCKED
 }
 
 func (r *Refresher) SelectRowsToProcess(ctx context.Context, tx pgx.Tx) ([]RowToProcess, error) {
-	rows, err := tx.Query(ctx, r.selectQuery)
+	rows, err := tx.Query(ctx, r.buildSelectQuery(time.Now()))
 	if err != nil {
 		return nil, err
 	}
@@ -108,7 +106,7 @@ func (r *Refresher) ExplainSelectQuery(ctx context.Context) (string, error) {
 		if _, err := tx.Exec(ctx, "SET enable_seqscan = OFF; ANALYZE icalproxy_feeds_v1"); err != nil {
 			return err
 		}
-		lns, err := pgxt.GetScalars[string](ctx, r.ag.DB, "EXPLAIN ANALYZE "+r.selectQuery)
+		lns, err := pgxt.GetScalars[string](ctx, r.ag.DB, "EXPLAIN ANALYZE "+r.buildSelectQuery(time.Now()))
 		if err != nil {
 			return err
 		}
