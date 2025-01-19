@@ -13,6 +13,7 @@ import (
 	"github.com/webhookdb/icalproxy/internal"
 	"github.com/webhookdb/icalproxy/refresher"
 	"github.com/webhookdb/icalproxy/server"
+	"log/slog"
 	"net/http"
 	"time"
 )
@@ -30,8 +31,17 @@ var serverCmd = &cli.Command{
 		}
 		logger := logctx.Logger(ctx)
 		e := api.New(api.Config{
-			Logger:                 logger,
-			LoggingMiddlwareConfig: api.LoggingMiddlwareConfig{},
+			Logger: logger,
+			LoggingMiddlwareConfig: api.LoggingMiddlwareConfig{
+				DoLog: func(c echo.Context, logger *slog.Logger) {
+					// Let the load balancer (ELB, Heroku router) do most of the logging work unless we have a server error
+					logMethod := logger.Debug
+					if c.Response().Status >= 500 {
+						logMethod = logger.Error
+					}
+					logMethod("request_finished")
+				},
+			},
 			HealthHandler: func(c echo.Context) error {
 				dbstart := time.Now()
 				var dblatency float64
