@@ -17,6 +17,7 @@ import (
 	"github.com/webhookdb/icalproxy/refresher"
 	"github.com/webhookdb/icalproxy/types"
 	"math/rand"
+	"net/http"
 	"net/url"
 	"strconv"
 	"testing"
@@ -45,6 +46,16 @@ var _ = Describe("refresher", func() {
 	AfterEach(func() {
 		origin.Close()
 	})
+
+	expiredFeed := func(tail string) *feed.Feed {
+		return feed.New(
+			fp.Must(url.Parse(origin.URL()+tail)),
+			make(map[string]string),
+			200,
+			[]byte("EXPIRED"),
+			time.Now().Add(-5*time.Hour),
+		)
+	}
 
 	Describe("StartScheduler", func() {
 		It("starts a routine that can be canceled", func() {
@@ -150,14 +161,7 @@ var _ = Describe("refresher", func() {
 			rowCnt := 1003 + rand.Intn(500)
 			for i := 0; i < rowCnt; i++ {
 				istr := strconv.Itoa(i)
-				Expect(d.CommitFeed(ctx,
-					feed.New(
-						fp.Must(url.Parse(origin.URL()+"/feed-"+istr)),
-						make(map[string]string),
-						200,
-						[]byte("FEED-"+istr),
-						time.Now().Add(-5*time.Hour),
-					), nil)).To(Succeed())
+				Expect(d.CommitFeed(ctx, expiredFeed("/feed-"+istr), nil)).To(Succeed())
 				origin.RouteToHandler("GET", "/feed-"+istr, ghttp.RespondWith(200, "FETCHED-"+istr))
 			}
 			Expect(refresher.New(ag).Run(ctx)).To(Succeed())
@@ -175,14 +179,7 @@ var _ = Describe("refresher", func() {
 					ghttp.RespondWith(401, "errbody"),
 				),
 			)
-			Expect(d.CommitFeed(ctx,
-				feed.New(
-					fp.Must(url.Parse(origin.URL()+"/expired-ttl.ics")),
-					make(map[string]string),
-					200,
-					[]byte("EXPIRED"),
-					time.Now().Add(-5*time.Hour),
-				), nil)).To(Succeed())
+			Expect(d.CommitFeed(ctx, expiredFeed("/expired-ttl.ics"), nil)).To(Succeed())
 
 			Expect(refresher.New(ag).Run(ctx)).To(Succeed())
 
@@ -194,6 +191,31 @@ var _ = Describe("refresher", func() {
 				HaveField("FetchStatus", 401),
 				HaveField("FetchErrorBody", BeEquivalentTo("errbody")),
 				HaveField("WebhookPending", false),
+			))
+		})
+		It("commits rows that timeout (fail with a url.Error from HttpClient.Do)", func() {
+			origin.AppendHandlers(
+				ghttp.CombineHandlers(
+					ghttp.VerifyRequest("GET", "/expired-ttl.ics", ""),
+					func(w http.ResponseWriter, r *http.Request) {
+						time.Sleep(1 * time.Second)
+						w.WriteHeader(500)
+					},
+				),
+			)
+			Expect(d.CommitFeed(ctx, expiredFeed("/expired-ttl.ics"), nil)).To(Succeed())
+
+			Expect(feed.WithHttpClient(&http.Client{Timeout: time.Millisecond}, func() error {
+				return refresher.New(ag).Run(ctx)
+			})).To(Succeed())
+
+			row := fp.Must(pgx.CollectExactlyOneRow[FeedRow](
+				fp.Must(ag.DB.Query(ctx, `SELECT * FROM icalproxy_feeds_v1 WHERE url = $1`, origin.URL()+"/expired-ttl.ics")),
+				pgx.RowToStructByName[FeedRow],
+			))
+			Expect(row).To(And(
+				HaveField("FetchStatus", 599),
+				HaveField("FetchErrorBody", ContainSubstring("Client.Timeout exceeded while awaiting headers")),
 			))
 		})
 		It("commits unchanged rows", func() {

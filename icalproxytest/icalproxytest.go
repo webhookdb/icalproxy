@@ -2,10 +2,9 @@ package icalproxytest
 
 import (
 	"context"
-	"crypto/md5"
-	"encoding/hex"
 	"encoding/json"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/webhookdb/icalproxy/internal"
 	"github.com/webhookdb/icalproxy/types"
 	"time"
 )
@@ -37,6 +36,5 @@ WHERE starts_with(url_host_rev, reverse('127001')) OR starts_with(url_host_rev, 
 }
 
 func MustMD5(s string) types.MD5Hash {
-	hash := md5.Sum([]byte(s))
-	return types.MD5Hash(hex.EncodeToString(hash[:]))
+	return internal.MD5HashHex([]byte(s))
 }

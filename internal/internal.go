@@ -1,7 +1,10 @@
 package internal
 
 import (
+	"crypto/md5"
+	"encoding/hex"
 	"fmt"
+	"github.com/webhookdb/icalproxy/types"
 	"net/http"
 )
 
@@ -15,4 +18,9 @@ func HeaderMap(h http.Header) map[string]string {
 		r[k] = v[0]
 	}
 	return r
+}
+
+func MD5HashHex(b []byte) types.MD5Hash {
+	hash := md5.Sum(b)
+	return types.MD5Hash(hex.EncodeToString(hash[:]))
 }

@@ -89,3 +89,12 @@ func init() {
 		Timeout: time.Minute,
 	}
 }
+
+func WithHttpClient(cl *http.Client, cb func() error) error {
+	old := httpClient
+	httpClient = cl
+	defer func() {
+		httpClient = old
+	}()
+	return cb()
+}

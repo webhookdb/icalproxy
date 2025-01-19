@@ -2,6 +2,7 @@ package refresher
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"github.com/jackc/pgx/v5"
 	"github.com/lithictech/go-aperitif/v2/logctx"
@@ -147,7 +148,20 @@ func (r *Refresher) processUrl(ctx context.Context, tx pgx.Tx, txMux *sync.Mutex
 	}
 	start := time.Now()
 	fd, err := feed.Fetch(ctx, uri)
-	if err != nil {
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) {
+		// These are timeouts, invalid hosts, etc. We should treat these like normal HTTP errors,
+		// but with a special 599 status code (0 is dangerous because most people check status >= 400 for errors).
+		body := []byte(urlErr.Error())
+		fd = &feed.Feed{
+			Url:         uri,
+			HttpHeaders: make(map[string]string),
+			HttpStatus:  599,
+			Body:        body,
+			MD5:         internal.MD5HashHex(body),
+			FetchedAt:   start,
+		}
+	} else if err != nil {
 		return err
 	}
 	txMux.Lock()
