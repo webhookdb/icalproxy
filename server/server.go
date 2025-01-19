@@ -146,9 +146,13 @@ func (h *endpointHandler) refetchAndCommit(ctx context.Context) (*feed.Feed, err
 
 func (h *endpointHandler) serveResponse(_ context.Context, fd *feed.Feed) error {
 	if fd.HttpStatus >= 400 {
-		// 400s should be 'proxied' as an error
-		h.c.Response().Header().Set("Ical-Proxy-Origin-Error", "true")
-		return h.c.Blob(fd.HttpStatus, fd.HttpHeaders["Content-Type"], fd.Body)
+		// Origin errors should be 'proxied' as a 421 error.
+		// If we use any error code, it makes it very confusing both operationally,
+		// and also more confusing as a caller. Most of these error codes are meaningless for hosts anyway-
+		// some use a 403 vs a 404 for example. So return everything as a 421 and include the original status code
+		// as a header.
+		h.c.Response().Header().Set("Ical-Proxy-Origin-Error", strconv.Itoa(fd.HttpStatus))
+		return h.c.Blob(http.StatusMisdirectedRequest, fd.HttpHeaders["Content-Type"], fd.Body)
 	}
 	h.c.Response().Header().Set("Content-Type", feed.CalendarContentType)
 	h.c.Response().Header().Set("Content-Length", strconv.Itoa(len(fd.Body)))

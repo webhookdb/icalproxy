@@ -121,7 +121,7 @@ var _ = Describe("server", func() {
 			row := fp.Must(db.FetchFeedRow(ag.DB, ctx, originFeedUri))
 			Expect(row.ContentsMD5).To(BeEquivalentTo("a2ec0c77b7bea23455185bcc75535bf7"))
 		})
-		It("returns the origin error if the fetch errors", func() {
+		It("returns a 421 with the origin error if the fetch errors", func() {
 			origin.AppendHandlers(
 				ghttp.CombineHandlers(
 					ghttp.VerifyRequest("GET", "/feed.ics", ""),
@@ -130,11 +130,11 @@ var _ = Describe("server", func() {
 			)
 			req := NewRequest("GET", serverRequestUrl, nil)
 			rr := Serve(e, req)
-			Expect(rr).To(HaveResponseCode(403))
+			Expect(rr).To(HaveResponseCode(421))
 			Expect(rr.Body.String()).To(Equal("nope"))
 			Expect(internal.HeaderMap(rr.Header())).To(And(
 				HaveKeyWithValue("Content-Type", "application/custom"),
-				HaveKeyWithValue("Ical-Proxy-Origin-Error", "true"),
+				HaveKeyWithValue("Ical-Proxy-Origin-Error", "403"),
 			))
 		})
 		Describe("with a cached feed", func() {
@@ -221,11 +221,11 @@ var _ = Describe("server", func() {
 				))).To(Succeed())
 				req := NewRequest("GET", serverRequestUrl, nil)
 				rr := Serve(e, req)
-				Expect(rr).To(HaveResponseCode(403))
+				Expect(rr).To(HaveResponseCode(421))
 				Expect(rr.Body.String()).To(Equal("nope"))
 				Expect(internal.HeaderMap(rr.Header())).To(And(
 					HaveKeyWithValue("Content-Type", "application/custom"),
-					HaveKeyWithValue("Ical-Proxy-Origin-Error", "true"),
+					HaveKeyWithValue("Ical-Proxy-Origin-Error", "403"),
 				))
 			})
 		})
@@ -240,11 +240,11 @@ var _ = Describe("server", func() {
 				ag.DB.Close()
 				req := NewRequest("GET", serverRequestUrl, nil)
 				rr := Serve(e, req)
-				Expect(rr).To(HaveResponseCode(403))
+				Expect(rr).To(HaveResponseCode(421))
 				Expect(rr.Body.String()).To(Equal("nope"))
 				Expect(internal.HeaderMap(rr.Header())).To(And(
 					HaveKeyWithValue("Content-Type", "application/custom"),
-					HaveKeyWithValue("Ical-Proxy-Origin-Error", "true"),
+					HaveKeyWithValue("Ical-Proxy-Origin-Error", "403"),
 					HaveKeyWithValue("Ical-Proxy-Fallback", "true"),
 				))
 			})
