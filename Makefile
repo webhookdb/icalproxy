@@ -47,9 +47,7 @@ update-lithic-deps:
 	go get github.com/lithictech/go-aperitif@latest
 
 psql:
-	pgcli "postgres://ical:ical@127.0.0.1:9025/ical"
-psql-test:
-	pgcli postgres://ical:ical@127.0.0.1:9026/test_ical
+	pgcli "postgres://ical:ical@127.0.0.1:18042/ical"
 
 help: build
 	@${BIN}

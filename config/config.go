@@ -54,6 +54,11 @@ func LoadConfig() (Config, error) {
 	if err := envconfig.Process(context.Background(), &cfg); err != nil {
 		return cfg, err
 	}
+	// If we're running tests with our default database setup,
+	// it means we're using pgbouncer, and should enable connection pooling.
+	if strings.HasPrefix(cfg.DatabaseUrl, "postgres://ical:ical@localhost:18042/ical") && cfg.DatabaseConnectionPoolUrl == "" {
+		cfg.DatabaseConnectionPoolUrl = cfg.DatabaseUrl
+	}
 	if m, err := BuildTTLMap(os.Environ()); err != nil {
 		return cfg, err
 	} else {

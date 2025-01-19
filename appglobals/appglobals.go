@@ -3,6 +3,7 @@ package appglobals
 import (
 	"context"
 	"errors"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/lithictech/go-aperitif/v2/logctx"
 	"github.com/webhookdb/icalproxy/config"
@@ -27,6 +28,10 @@ func New(ctx context.Context, cfg config.Config) (ac *AppGlobals, err error) {
 	}
 	if ac.DB, err = pgxt.ConnectToUrl(dbUrl, func(p *pgxpool.Config) {
 		p.ConnConfig.Tracer = pgxt.NewLoggingTracer()
+		if ac.Config.DatabaseConnectionPoolUrl != "" {
+			// pgx uses prepared statements by default, but pgbouncer doesn't work right with them
+			p.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
+		}
 	}); err != nil {
 		return
 	}

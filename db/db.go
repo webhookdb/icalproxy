@@ -137,6 +137,11 @@ func (db *DB) CommitFeed(ctx context.Context, feed *feed.Feed, opts *CommitFeedO
 	// Truncate the second out, since http only knows about seconds
 	fetchedTrunc := feed.FetchedAt.Truncate(time.Second)
 	urlHost := types.NormalizeURLHostname(feed.Url).Reverse()
+	// Required for simple protocol when running with a connection pool
+	encodedHeaders, err := json.Marshal(feed.HttpHeaders)
+	if err != nil {
+		return internal.ErrWrap(err, "encoding http headers to save")
+	}
 
 	if feed.HttpStatus >= 400 {
 		const errQuery = `INSERT INTO icalproxy_feeds_v1 
@@ -153,7 +158,7 @@ ON CONFLICT (url) DO UPDATE SET
 			urlHost,
 			fetchedTrunc,
 			feed.HttpStatus,
-			feed.HttpHeaders,
+			string(encodedHeaders),
 			feed.Body,
 			fetchedTrunc,
 		}
@@ -181,7 +186,7 @@ RETURNING id`
 		urlHost,
 		fetchedTrunc,
 		feed.HttpStatus,
-		feed.HttpHeaders,
+		string(encodedHeaders),
 		feed.MD5,
 		fetchedTrunc,
 		len(feed.Body),

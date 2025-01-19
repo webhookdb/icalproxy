@@ -3,12 +3,25 @@ services:
     image: postgres:17
     networks:
       - ical-proxy
-    ports:
-      - "127.0.0.1:18042:5432"
     environment:
       POSTGRES_USER: 'ical'
       POSTGRES_PASSWORD: 'ical'
       POSTGRES_DB: 'ical'
-
+  pgbouncer:
+    image: edoburu/pgbouncer:latest
+    networks:
+      - ical-proxy
+    environment:
+      - DB_HOST=db
+      - DB_USER=ical
+      - DB_PASSWORD=ical
+      - DB_NAME=ical
+      - AUTH_TYPE=scram-sha-256
+      - POOL_MODE=transaction
+      - ADMIN_USERS=postgres,ical
+    depends_on:
+      - db
+    ports:
+      - "127.0.0.1:18042:5432"
 networks:
   ical-proxy:
