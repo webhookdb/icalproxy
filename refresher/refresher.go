@@ -113,15 +113,17 @@ func (r *Refresher) CountRowsAwaitingRefresh(ctx context.Context) (int64, error)
 func (r *Refresher) processChunk(ctx context.Context) (int, error) {
 	var count int
 	err := pgxt.WithTransaction(ctx, r.ag.DB, func(tx pgx.Tx) error {
+		start := time.Now()
 		logctx.Logger(ctx).DebugContext(ctx, "refresher_querying_chunk")
 		rowsToProcess, err := r.SelectRowsToProcess(ctx, tx)
 		if err != nil {
 			return err
 		}
-		logctx.Logger(ctx).InfoContext(ctx, "refresher_processing_chunk", "row_count", len(rowsToProcess))
 		if len(rowsToProcess) == 0 {
+			logctx.Logger(ctx).InfoContext(ctx, "refresher_empty_chunk")
 			return nil
 		}
+		logctx.Logger(ctx).DebugContext(ctx, "refresher_processing_chunk", "row_count", len(rowsToProcess))
 		// We are processing in multiple threads but can only call the transaction commit
 		// with one thread at a time. Guard it with a mutex, it's a lot simpler
 		// than rewriting this for producer/consumer for minimal benefit of lock-free.
@@ -130,6 +132,10 @@ func (r *Refresher) processChunk(ctx context.Context) (int, error) {
 			return r.processUrl(ctx, tx, txMux, rowsToProcess[idx])
 		})
 		count += len(rowsToProcess)
+		logctx.Logger(ctx).InfoContext(ctx, "refresher_processed_chunk",
+			"row_count", len(rowsToProcess),
+			"elapsed_ms", time.Since(start).Milliseconds(),
+		)
 		return perr
 	})
 	return count, err

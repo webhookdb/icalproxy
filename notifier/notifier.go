@@ -48,6 +48,7 @@ func (r *Notifier) Run(ctx context.Context) error {
 func (r *Notifier) processChunk(ctx context.Context) (int, error) {
 	var count int
 	err := pgxt.WithTransaction(ctx, r.ag.DB, func(tx pgx.Tx) error {
+		start := time.Now()
 		logctx.Logger(ctx).DebugContext(ctx, "notifier_querying_chunk")
 		q := fmt.Sprintf(`SELECT id, url
 FROM icalproxy_feeds_v1
@@ -70,10 +71,11 @@ FOR UPDATE SKIP LOCKED
 		}); err != nil {
 			return err
 		}
-		logctx.Logger(ctx).InfoContext(ctx, "notifier_processing_chunk", "row_count", len(urls))
 		if len(urls) == 0 {
+			logctx.Logger(ctx).InfoContext(ctx, "notifier_empty_chunk")
 			return nil
 		}
+		logctx.Logger(ctx).DebugContext(ctx, "notifier_processing_chunk", "row_count", len(urls))
 		body, err := json.Marshal(map[string]any{"urls": urls})
 		if err != nil {
 			return internal.ErrWrap(err, "marshaling webhook")
@@ -94,14 +96,13 @@ FOR UPDATE SKIP LOCKED
 			return internal.ErrWrap(err, "updating row")
 		}
 		count += len(urls)
+		logctx.Logger(ctx).InfoContext(ctx, "notifier_processed_chunk",
+			"row_count", len(urls),
+			"elapsed_ms", time.Since(start).Milliseconds(),
+		)
 		return nil
 	})
 	return count, err
-}
-
-type row struct {
-	Id  int64
-	Url string
 }
 
 var httpClient *http.Client
