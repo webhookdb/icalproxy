@@ -194,6 +194,7 @@ var _ = Describe("refresher", func() {
 			))
 		})
 		It("commits rows that timeout (fail with a url.Error from HttpClient.Do)", func() {
+			ag.Config.RefreshTimeout = 0
 			origin.AppendHandlers(
 				ghttp.CombineHandlers(
 					ghttp.VerifyRequest("GET", "/expired-ttl.ics", ""),
@@ -205,9 +206,7 @@ var _ = Describe("refresher", func() {
 			)
 			Expect(d.CommitFeed(ctx, expiredFeed("/expired-ttl.ics"), nil)).To(Succeed())
 
-			Expect(feed.WithHttpClient(&http.Client{Timeout: time.Millisecond}, func() error {
-				return refresher.New(ag).Run(ctx)
-			})).To(Succeed())
+			Expect(refresher.New(ag).Run(ctx)).To(Succeed())
 
 			row := fp.Must(pgx.CollectExactlyOneRow[FeedRow](
 				fp.Must(ag.DB.Query(ctx, `SELECT * FROM icalproxy_feeds_v1 WHERE url = $1`, origin.URL()+"/expired-ttl.ics")),
@@ -215,7 +214,7 @@ var _ = Describe("refresher", func() {
 			))
 			Expect(row).To(And(
 				HaveField("FetchStatus", 599),
-				HaveField("FetchErrorBody", ContainSubstring("Client.Timeout exceeded while awaiting headers")),
+				HaveField("FetchErrorBody", ContainSubstring("context deadline exceeded")),
 			))
 		})
 		It("commits unchanged rows", func() {

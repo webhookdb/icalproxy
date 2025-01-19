@@ -32,9 +32,9 @@ type Config struct {
 	// Number of feeds that are refreshed at a time before changes are committed to the database.
 	// Smaller pages will see more responsive updates, while larger pages may see better performance.
 	RefreshPageSize int `env:"REFRESH_PAGE_SIZE, default=100"`
-	// How long to wait for an origin server before timing out an ICalendar feed request.
+	// Seconds to wait for an origin server before timing out an ICalendar feed request.
 	// Only used for the refresh routine.
-	RefreshTimeout  int    `env:"REFRESH_TIMEOUT, default=60"`
+	RefreshTimeout  int    `env:"REFRESH_TIMEOUT, default=30"`
 	SentryDSN       string `env:"SENTRY_DSN"`
 	WebhookPageSize int    `env:"WEBHOOK_PAGE_SIZE, default=100"`
 	WebhookUrl      string `env:"WEBHOOK_URL"`

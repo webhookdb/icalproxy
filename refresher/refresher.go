@@ -147,7 +147,9 @@ func (r *Refresher) processUrl(ctx context.Context, tx pgx.Tx, txMux *sync.Mutex
 		return internal.ErrWrap(err, "url parsed failed, should not have been stored")
 	}
 	start := time.Now()
-	fd, err := feed.Fetch(ctx, uri)
+	reqctx, cancel := context.WithTimeout(ctx, time.Duration(r.ag.Config.RefreshTimeout)*time.Second)
+	defer cancel()
+	fd, err := feed.Fetch(reqctx, uri)
 	var urlErr *url.Error
 	if errors.As(err, &urlErr) {
 		// These are timeouts, invalid hosts, etc. We should treat these like normal HTTP errors,

@@ -86,15 +86,7 @@ var httpClient *http.Client
 
 func init() {
 	httpClient = &http.Client{
+		// This can be overridden by passing a context timeout, like refresher does
 		Timeout: time.Minute,
 	}
-}
-
-func WithHttpClient(cl *http.Client, cb func() error) error {
-	old := httpClient
-	httpClient = cl
-	defer func() {
-		httpClient = old
-	}()
-	return cb()
 }
