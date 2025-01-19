@@ -143,7 +143,7 @@ func (h *endpointHandler) refetchAndCommit(ctx context.Context) (*feed.Feed, err
 	}
 	// If the commit is coming through the server, we don't need to send a webhook.
 	if err := db.New(h.ag.DB).CommitFeed(ctx, fd, nil); err != nil {
-		logctx.Logger(ctx).With("error", err).Error("commit_feed_error")
+		logctx.Logger(ctx).With("error", err).ErrorContext(ctx, "commit_feed_error")
 	}
 	return fd, err
 }
@@ -187,13 +187,13 @@ func handleStats(ag *appglobals.AppGlobals) echo.HandlerFunc {
 		countStart := time.Now()
 		refreshRowCnt, err := refresher.New(ag).CountRowsAwaitingRefresh(ctx)
 		if err != nil {
-			logctx.Logger(ctx).With("error", err).Error("counting_rows_awaiting_refresh")
+			logctx.Logger(ctx).With("error", err).ErrorContext(ctx, "counting_rows_awaiting_refresh")
 			refreshRowCnt = -1
 		}
 		countLatency := time.Since(countStart)
 		whRowCnt, err := pgxt.GetScalar[int64](ctx, ag.DB, "SELECT count(1) FROM icalproxy_feeds_v1 WHERE webhook_pending")
 		if err != nil {
-			logctx.Logger(ctx).With("error", err).Error("counting_rows_pending_webhook")
+			logctx.Logger(ctx).With("error", err).ErrorContext(ctx, "counting_rows_pending_webhook")
 			whRowCnt = -1
 		}
 		resp := map[string]any{

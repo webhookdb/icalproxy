@@ -113,12 +113,12 @@ func (r *Refresher) CountRowsAwaitingRefresh(ctx context.Context) (int64, error)
 func (r *Refresher) processChunk(ctx context.Context) (int, error) {
 	var count int
 	err := pgxt.WithTransaction(ctx, r.ag.DB, func(tx pgx.Tx) error {
-		logctx.Logger(ctx).Info("refresher_querying_chunk")
+		logctx.Logger(ctx).DebugContext(ctx, "refresher_querying_chunk")
 		rowsToProcess, err := r.SelectRowsToProcess(ctx, tx)
 		if err != nil {
 			return err
 		}
-		logctx.Logger(ctx).Info("refresher_processing_chunk", "row_count", len(rowsToProcess))
+		logctx.Logger(ctx).InfoContext(ctx, "refresher_processing_chunk", "row_count", len(rowsToProcess))
 		if len(rowsToProcess) == 0 {
 			return nil
 		}
@@ -168,12 +168,12 @@ func (r *Refresher) processUrl(ctx context.Context, tx pgx.Tx, txMux *sync.Mutex
 	defer txMux.Unlock()
 	if fd.MD5 == rtp.MD5 {
 		if err := db.New(tx).CommitUnchanged(ctx, fd); err != nil {
-			logctx.Logger(ctx).With("error", err).Error("refresh_commit_feed_error")
+			logctx.Logger(ctx).With("error", err).ErrorContext(ctx, "refresh_commit_feed_error")
 		}
-		logctx.Logger(ctx).Info("feed_unchanged")
+		logctx.Logger(ctx).DebugContext(ctx, "feed_unchanged")
 	} else {
 		if err := db.New(tx).CommitFeed(ctx, fd, &db.CommitFeedOptions{WebhookPending: r.ag.Config.WebhookUrl != ""}); err != nil {
-			logctx.Logger(ctx).With("error", err).Error("refresh_commit_feed_error")
+			logctx.Logger(ctx).With("error", err).ErrorContext(ctx, "refresh_commit_feed_error")
 		}
 		logctx.Logger(ctx).
 			With("feed_http_status", fd.HttpStatus, "elapsed_ms", time.Now().Sub(start).Milliseconds()).

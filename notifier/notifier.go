@@ -24,7 +24,7 @@ func New(ag *appglobals.AppGlobals) *Notifier {
 func StartScheduler(ctx context.Context, r *Notifier) {
 	ctx = logctx.AddTo(ctx, "logger", "notifier")
 	if r.ag.Config.WebhookUrl == "" {
-		logctx.Logger(ctx).Info("notifier_scheduler_webhook_not_configured")
+		logctx.Logger(ctx).InfoContext(ctx, "notifier_scheduler_webhook_not_configured")
 		return
 	}
 	internal.StartScheduler(ctx, r, 10*time.Second)
@@ -48,7 +48,7 @@ func (r *Notifier) Run(ctx context.Context) error {
 func (r *Notifier) processChunk(ctx context.Context) (int, error) {
 	var count int
 	err := pgxt.WithTransaction(ctx, r.ag.DB, func(tx pgx.Tx) error {
-		logctx.Logger(ctx).Info("notifier_querying_chunk")
+		logctx.Logger(ctx).DebugContext(ctx, "notifier_querying_chunk")
 		q := fmt.Sprintf(`SELECT id, url
 FROM icalproxy_feeds_v1
 WHERE webhook_pending
@@ -70,7 +70,7 @@ FOR UPDATE SKIP LOCKED
 		}); err != nil {
 			return err
 		}
-		logctx.Logger(ctx).Info("notifier_processing_chunk", "row_count", len(urls))
+		logctx.Logger(ctx).InfoContext(ctx, "notifier_processing_chunk", "row_count", len(urls))
 		if len(urls) == 0 {
 			return nil
 		}

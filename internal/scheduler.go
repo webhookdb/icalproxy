@@ -16,24 +16,24 @@ type IRunner interface {
 func StartScheduler(ctx context.Context, r IRunner, interval time.Duration) {
 	schedulerName := strings.ToLower(reflect.Indirect(reflect.ValueOf(r)).Type().Name())
 	ctx = logctx.AddTo(ctx, "scheduler", schedulerName)
-	logctx.Logger(ctx).Info("scheduler_starting")
+	logctx.Logger(ctx).InfoContext(ctx, "scheduler_starting")
 	go func() {
 		for {
-			logctx.Logger(ctx).Info("scheduler_starting_run")
+			logctx.Logger(ctx).InfoContext(ctx, "scheduler_starting_run")
 			if err := r.Run(ctx); err != nil {
-				logctx.Logger(ctx).With("error", err).Error("scheduler_run_error")
+				logctx.Logger(ctx).With("error", err).ErrorContext(ctx, "scheduler_run_error")
 				sentry.WithScope(func(scope *sentry.Scope) {
 					scope.SetTag("scheduler", schedulerName)
 					sentry.CaptureException(err)
 				})
 			} else {
-				logctx.Logger(ctx).Info("scheduler_finished_run")
+				logctx.Logger(ctx).InfoContext(ctx, "scheduler_finished_run")
 			}
 			select {
 			case <-time.After(interval):
 				continue
 			case <-ctx.Done():
-				logctx.Logger(ctx).Info("scheduler_closing")
+				logctx.Logger(ctx).InfoContext(ctx, "scheduler_closing")
 				return
 			}
 		}
