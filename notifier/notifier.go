@@ -81,6 +81,9 @@ FOR UPDATE SKIP LOCKED
 		req, err := http.NewRequestWithContext(ctx, "POST", r.ag.Config.WebhookUrl, bytes.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("User-Agent", config.UserAgent)
+		if r.ag.Config.ApiKey != "" {
+			req.Header.Set("Authorization", "Apikey "+r.ag.Config.ApiKey)
+		}
 		resp, err := httpClient.Do(req)
 		if err != nil {
 			return internal.ErrWrap(err, "requesting webhook")

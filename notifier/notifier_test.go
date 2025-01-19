@@ -79,6 +79,7 @@ var _ = Describe("notifier", func() {
 				ghttp.CombineHandlers(
 					ghttp.VerifyRequest("POST", "/wh", ""),
 					func(w http.ResponseWriter, req *http.Request) {
+						Expect(req.Header).ToNot(HaveKey("Authorization"))
 						var b map[string]any
 						Expect(json.NewDecoder(req.Body).Decode(&b)).To(Succeed())
 						Expect(b).To(HaveKeyWithValue("urls", HaveLen(100)))
@@ -131,6 +132,28 @@ var _ = Describe("notifier", func() {
 				pgx.RowToStructByName[FeedRow],
 			))
 			Expect(row).To(HaveField("WebhookPending", true))
+		})
+
+		It("includes the api key header if configured", func() {
+			ag.Config.WebhookUrl = webhookSrv.URL() + "/wh"
+			ag.Config.ApiKey = "sekret"
+			Expect(db.New(ag.DB).CommitFeed(ctx,
+				feed.New(
+					fp.Must(url.Parse("https://notifiertest.localhost/feed")),
+					make(map[string]string),
+					200,
+					[]byte("FEED"),
+					time.Now(),
+				), &db.CommitFeedOptions{WebhookPendingOnInsert: true})).To(Succeed())
+
+			webhookSrv.AppendHandlers(
+				ghttp.CombineHandlers(
+					ghttp.VerifyRequest("POST", "/wh", ""),
+					ghttp.VerifyHeaderKV("Authorization", "Apikey sekret"),
+					ghttp.RespondWith(200, ""),
+				),
+			)
+			Expect(notifier.New(ag).Run(ctx)).To(Succeed())
 		})
 	})
 })
