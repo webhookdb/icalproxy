@@ -28,6 +28,8 @@ General purpose configuration:
 - `PORT=18041`: Port serving http traffic.
 - `DATABASE_URL=postgres://ical:ical@localhost:18042`: PostgreSQL URL used for storage.
   This application self-manages the database, you don't need to worry about migrations.
+- `DATABASE_CONNECTION_POOL_URL=`: If provided, use this as the database connection string.
+  icalproxy is compatible with transaction-mode connection pooling.
 - `API_KEY=<value>`: Enable auth for the API. If set,
   all `/` requests require an `Authorization: Apikey <value>` header.
 - `SENTRY_DSN=`: Set if using Sentry.

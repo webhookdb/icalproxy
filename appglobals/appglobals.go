@@ -21,7 +21,11 @@ func New(ctx context.Context, cfg config.Config) (ac *AppGlobals, err error) {
 	}
 	ac = &AppGlobals{}
 	ac.Config = cfg
-	if ac.DB, err = pgxt.ConnectToUrl(cfg.DatabaseUrl, func(p *pgxpool.Config) {
+	dbUrl := ac.Config.DatabaseUrl
+	if ac.Config.DatabaseConnectionPoolUrl != "" {
+		dbUrl = ac.Config.DatabaseConnectionPoolUrl
+	}
+	if ac.DB, err = pgxt.ConnectToUrl(dbUrl, func(p *pgxpool.Config) {
 		p.ConnConfig.Tracer = pgxt.NewLoggingTracer()
 	}); err != nil {
 		return

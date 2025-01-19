@@ -19,13 +19,15 @@ var ReleaseVersion string
 var UserAgent = "github.com/webhookdb/icalproxy"
 
 type Config struct {
-	ApiKey      string `env:"API_KEY"`
-	DatabaseUrl string `env:"DATABASE_URL, default=postgres://ical:ical@localhost:18042/ical?sslmode=disable"`
-	Debug       bool   `env:"DEBUG"`
-	LogFile     string `env:"LOG_FILE"`
-	LogFormat   string `env:"LOG_FORMAT"`
-	LogLevel    string `env:"LOG_LEVEL, default=info"`
-	Port        int    `env:"PORT, default=18041"`
+	// Protect endpoints behind an "Authorization: Apikey <value>" header.
+	ApiKey                    string `env:"API_KEY"`
+	DatabaseUrl               string `env:"DATABASE_URL, default=postgres://ical:ical@localhost:18042/ical?sslmode=disable"`
+	DatabaseConnectionPoolUrl string `env:"DATABASE_CONNECTION_POOL_URL"`
+	Debug                     bool   `env:"DEBUG"`
+	LogFile                   string `env:"LOG_FILE"`
+	LogFormat                 string `env:"LOG_FORMAT"`
+	LogLevel                  string `env:"LOG_LEVEL, default=info"`
+	Port                      int    `env:"PORT, default=18041"`
 	// Parsed from ICAL_TTL_ vars.
 	// See README for details.
 	IcalTTLMap map[types.NormalizedHostname]types.TTL
