@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	sentryecho "github.com/getsentry/sentry-go/echo"
@@ -11,6 +12,7 @@ import (
 	"github.com/webhookdb/icalproxy/config"
 	"github.com/webhookdb/icalproxy/db"
 	"github.com/webhookdb/icalproxy/internal"
+	"github.com/webhookdb/icalproxy/notifier"
 	"github.com/webhookdb/icalproxy/refresher"
 	"github.com/webhookdb/icalproxy/server"
 	"log/slog"
@@ -71,13 +73,16 @@ var serverCmd = &cli.Command{
 			return internal.ErrWrap(err, "failed to register v1 endpoints")
 		}
 
-		refresher.StartScheduler(ctx, refresher.New(appGlobals))
+		cancelCtx, cancel := context.WithCancel(ctx)
+		refresher.StartScheduler(cancelCtx, refresher.New(appGlobals))
+		notifier.StartScheduler(cancelCtx, notifier.New(appGlobals))
 
 		logger.With("port", appGlobals.Config.Port).InfoContext(ctx, "server_listening")
 		if err := e.Start(fmt.Sprintf(":%d", appGlobals.Config.Port)); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logger.With("error", err).ErrorContext(ctx, "server_start")
 			panic(err)
 		}
+		cancel()
 		return nil
 	},
 }
