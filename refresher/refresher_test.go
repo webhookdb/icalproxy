@@ -31,12 +31,13 @@ func TestRefresher(t *testing.T) {
 
 var _ = Describe("refresher", func() {
 	var ctx context.Context
+	var hook *logctx.Hook
 	var ag *appglobals.AppGlobals
 	var origin *ghttp.Server
 	var d *db.DB
 
 	BeforeEach(func() {
-		ctx, _ = logctx.WithNullLogger(context.Background())
+		ctx, hook = logctx.WithNullLogger(context.Background())
 		ag = fp.Must(appglobals.New(ctx, fp.Must(config.LoadConfig())))
 		Expect(TruncateLocal(ctx, ag.DB)).To(Succeed())
 		origin = ghttp.NewServer()
@@ -192,6 +193,29 @@ var _ = Describe("refresher", func() {
 				HaveField("FetchErrorBody", BeEquivalentTo("errbody")),
 				HaveField("WebhookPending", false),
 			))
+		})
+		It("marks repeated fetch failures as unchanged (compares bodies)", func() {
+			Expect(d.CommitFeed(ctx, expiredFeed("/feed.ics"), nil)).To(Succeed())
+			origin.AppendHandlers(
+				ghttp.CombineHandlers(
+					ghttp.VerifyRequest("GET", "/feed.ics", ""),
+					ghttp.RespondWith(404, ""),
+				),
+			)
+			origin.AppendHandlers(
+				ghttp.CombineHandlers(
+					ghttp.VerifyRequest("GET", "/feed.ics", ""),
+					ghttp.RespondWith(404, ""),
+				),
+			)
+			Expect(refresher.New(ag).Run(ctx)).To(Succeed())
+			// Set this to need to be checked again
+			_, err := ag.DB.Exec(ctx, "UPDATE icalproxy_feeds_v1 SET checked_at=$1 WHERE url=$2", time.Now().Add(-5*time.Hour), origin.URL()+"/feed.ics")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(refresher.New(ag).Run(ctx)).To(Succeed())
+			messages := fp.Map(hook.Records(), func(r logctx.HookRecord) string { return r.Record.Message })
+			Expect(messages).To(ContainElement("feed_change_committed"))
+			Expect(messages).To(ContainElement("feed_unchanged"))
 		})
 		It("commits rows that timeout (fail with a url.Error from HttpClient.Do)", func() {
 			ag.Config.RefreshTimeout = 0

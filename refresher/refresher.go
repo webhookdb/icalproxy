@@ -46,7 +46,7 @@ func (r *Refresher) Run(ctx context.Context) error {
 
 func (r *Refresher) buildSelectQuery(now time.Time) string {
 	whereSql := r.buildSelectQueryWhere(now)
-	q := fmt.Sprintf(`SELECT url, contents_md5
+	q := fmt.Sprintf(`SELECT url, contents_md5, fetch_status
 FROM icalproxy_feeds_v1
 WHERE %s
 LIMIT %d
@@ -84,7 +84,7 @@ func (r *Refresher) SelectRowsToProcess(ctx context.Context, tx pgx.Tx) ([]RowTo
 	}
 	return pgx.CollectRows[RowToProcess](rows, func(r pgx.CollectableRow) (RowToProcess, error) {
 		rtp := RowToProcess{}
-		return rtp, r.Scan(&rtp.Url, &rtp.MD5)
+		return rtp, r.Scan(&rtp.Url, &rtp.MD5, &rtp.FetchStatus)
 	})
 }
 
@@ -136,8 +136,9 @@ func (r *Refresher) processChunk(ctx context.Context) (int, error) {
 }
 
 type RowToProcess struct {
-	Url string
-	MD5 types.MD5Hash
+	Url         string
+	MD5         types.MD5Hash
+	FetchStatus int
 }
 
 func (r *Refresher) processUrl(ctx context.Context, tx pgx.Tx, txMux *sync.Mutex, rtp RowToProcess) error {
@@ -168,7 +169,16 @@ func (r *Refresher) processUrl(ctx context.Context, tx pgx.Tx, txMux *sync.Mutex
 	}
 	txMux.Lock()
 	defer txMux.Unlock()
+	feedUnchanged := false
 	if fd.MD5 == rtp.MD5 {
+		// Body has not changed
+		feedUnchanged = true
+	} else if fd.HttpStatus >= 400 && fd.HttpStatus == rtp.FetchStatus {
+		// If this is an error fetch, and the last fetch was also an error fetch with the same status code,
+		// don't bother updating the row.
+		feedUnchanged = true
+	}
+	if feedUnchanged {
 		if err := db.New(tx).CommitUnchanged(ctx, fd); err != nil {
 			logctx.Logger(ctx).With("error", err).ErrorContext(ctx, "refresh_commit_feed_error")
 		}
