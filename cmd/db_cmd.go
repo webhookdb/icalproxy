@@ -13,14 +13,14 @@ var dbCmd = &cli.Command{
 			Name: "migrate",
 			Action: func(c *cli.Context) error {
 				ctx, appGlobals := loadAppCtx(loadCtx(c, loadConfig(c)))
-				return db.Migrate(ctx, appGlobals.DB)
+				return db.New(appGlobals.DB).Migrate(ctx)
 			},
 		},
 		{
 			Name: "reset",
 			Action: func(c *cli.Context) error {
 				ctx, appGlobals := loadAppCtx(loadCtx(c, loadConfig(c)))
-				return db.Reset(ctx, appGlobals.DB)
+				return db.New(appGlobals.DB).Reset(ctx)
 			},
 		},
 	},

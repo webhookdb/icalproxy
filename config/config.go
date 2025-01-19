@@ -34,8 +34,10 @@ type Config struct {
 	RefreshPageSize int `env:"REFRESH_PAGE_SIZE, default=100"`
 	// How long to wait for an origin server before timing out an ICalendar feed request.
 	// Only used for the refresh routine.
-	RefreshTimeout int    `env:"REFRESH_TIMEOUT, default=60"`
-	SentryDSN      string `env:"SENTRY_DSN"`
+	RefreshTimeout  int    `env:"REFRESH_TIMEOUT, default=60"`
+	SentryDSN       string `env:"SENTRY_DSN"`
+	WebhookPageSize int    `env:"WEBHOOK_PAGE_SIZE, default=100"`
+	WebhookUrl      string `env:"WEBHOOK_URL"`
 }
 
 func (c Config) NewLogger(fields ...any) (*slog.Logger, error) {

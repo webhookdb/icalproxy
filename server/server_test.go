@@ -16,6 +16,7 @@ import (
 	"github.com/webhookdb/icalproxy/db"
 	"github.com/webhookdb/icalproxy/feed"
 	"github.com/webhookdb/icalproxy/fp"
+	"github.com/webhookdb/icalproxy/icalproxytest"
 	"github.com/webhookdb/icalproxy/internal"
 	"github.com/webhookdb/icalproxy/server"
 	"github.com/webhookdb/icalproxy/types"
@@ -40,7 +41,7 @@ var _ = Describe("server", func() {
 
 	BeforeEach(func() {
 		ag = fp.Must(appglobals.New(ctx, fp.Must(config.LoadConfig())))
-		Expect(db.TruncateLocal(ctx, ag.DB)).To(Succeed())
+		Expect(icalproxytest.TruncateLocal(ctx, ag.DB)).To(Succeed())
 		e = api.New(api.Config{Logger: logctx.Logger(ctx)})
 
 		origin = ghttp.NewServer()
@@ -118,7 +119,7 @@ var _ = Describe("server", func() {
 				HaveKeyWithValue("Etag", "a2ec0c77b7bea23455185bcc75535bf7"),
 			))
 
-			row := fp.Must(db.FetchFeedRow(ag.DB, ctx, originFeedUri))
+			row := fp.Must(db.New(ag.DB).FetchFeedRow(ctx, originFeedUri))
 			Expect(row.ContentsMD5).To(BeEquivalentTo("a2ec0c77b7bea23455185bcc75535bf7"))
 		})
 		It("returns a 421 with the origin error if the fetch errors", func() {
@@ -139,13 +140,13 @@ var _ = Describe("server", func() {
 		})
 		Describe("with a cached feed", func() {
 			BeforeEach(func() {
-				Expect(db.CommitFeed(ag.DB, ctx, feed.New(
+				Expect(db.New(ag.DB).CommitFeed(ctx, feed.New(
 					originFeedUri,
 					make(map[string]string),
 					200,
 					[]byte("VEVENT"),
 					time.Now(),
-				))).To(Succeed())
+				), nil)).To(Succeed())
 			})
 			It("returns 304 if the feed has not been modified and the caller passes if-none-match headers", func() {
 				req := NewRequest("GET", serverRequestUrl, nil)
@@ -177,13 +178,13 @@ var _ = Describe("server", func() {
 				Expect(rr).To(HaveResponseCode(200))
 			})
 			It("fetches from origin and serves from cache if the TTL has expired", func() {
-				Expect(db.CommitFeed(ag.DB, ctx, feed.New(
+				Expect(db.New(ag.DB).CommitFeed(ctx, feed.New(
 					originFeedUri,
 					make(map[string]string),
 					200,
 					[]byte("VERSION1"),
 					time.Now().Add(-5*time.Hour),
-				))).To(Succeed())
+				), nil)).To(Succeed())
 				origin.AppendHandlers(
 					ghttp.CombineHandlers(
 						ghttp.VerifyRequest("GET", "/feed.ics", ""),
@@ -195,7 +196,7 @@ var _ = Describe("server", func() {
 				Expect(rr).To(HaveResponseCode(200))
 				Expect(rr.Body.String()).To(Equal("VERSION2"))
 
-				row := fp.Must(db.FetchFeedRow(ag.DB, ctx, originFeedUri))
+				row := fp.Must(db.New(ag.DB).FetchFeedRow(ctx, originFeedUri))
 				Expect(row.ContentsMD5).To(BeEquivalentTo("e09e7582b0849d4b27f9af87ae6703ea"))
 			})
 			It("fetches from origin and serves if there are critical issues like DB problems", func() {
@@ -212,13 +213,13 @@ var _ = Describe("server", func() {
 				Expect(rr.Body.String()).To(Equal("FETCHED"))
 			})
 			It("returns the origin error if the cached feed was an error", func() {
-				Expect(db.CommitFeed(ag.DB, ctx, feed.New(
+				Expect(db.New(ag.DB).CommitFeed(ctx, feed.New(
 					originFeedUri,
 					map[string]string{"Content-Type": "application/custom"},
 					403,
 					[]byte("nope"),
 					time.Now(),
-				))).To(Succeed())
+				), nil)).To(Succeed())
 				req := NewRequest("GET", serverRequestUrl, nil)
 				rr := Serve(e, req)
 				Expect(rr).To(HaveResponseCode(421))
@@ -278,8 +279,9 @@ var _ = Describe("server", func() {
 			rr := Serve(e, req)
 			Expect(rr).To(HaveResponseCode(200))
 			Expect(MustUnmarshalFrom(rr.Body)).To(And(
-				HaveKeyWithValue("num_goroutines", BeNumerically(">", 1)),
-				HaveKeyWithValue("pending_row_count", BeEquivalentTo(0)),
+				HaveKey("db_count_latency"),
+				HaveKeyWithValue("pending_refresh_count", BeEquivalentTo(0)),
+				HaveKeyWithValue("pending_webhooks", BeEquivalentTo(0)),
 			))
 		})
 	})

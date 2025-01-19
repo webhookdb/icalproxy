@@ -24,27 +24,9 @@ func New(ag *appglobals.AppGlobals) *Refresher {
 }
 
 func StartScheduler(ctx context.Context, r *Refresher) {
-	logctx.Logger(ctx).Info("starting_scheduler")
-	go func() {
-		for {
-			logctx.Logger(ctx).Info("running_scheduler")
-			if err := r.Run(ctx); err != nil {
-				logctx.Logger(ctx).With("error", err).Error("enqueue_refresh_tasks_error")
-			} else {
-				logctx.Logger(ctx).Info("enqueued_refresh_tasks")
-			}
-			select {
-			case <-time.After(schedulerInterval):
-				continue
-			case <-ctx.Done():
-				logctx.Logger(ctx).Info("canceling_scheduler")
-				return
-			}
-		}
-	}()
+	ctx = logctx.AddTo(ctx, "logger", "refresher")
+	internal.StartScheduler(ctx, r, 30*time.Second)
 }
-
-const schedulerInterval = 30 * time.Second
 
 type Refresher struct {
 	ag *appglobals.AppGlobals
@@ -171,12 +153,12 @@ func (r *Refresher) processUrl(ctx context.Context, tx pgx.Tx, txMux *sync.Mutex
 	txMux.Lock()
 	defer txMux.Unlock()
 	if fd.MD5 == rtp.MD5 {
-		if err := db.CommitUnchanged(tx, ctx, fd); err != nil {
+		if err := db.New(tx).CommitUnchanged(ctx, fd); err != nil {
 			logctx.Logger(ctx).With("error", err).Error("refresh_commit_feed_error")
 		}
 		logctx.Logger(ctx).Info("feed_unchanged")
 	} else {
-		if err := db.CommitFeed(tx, ctx, fd); err != nil {
+		if err := db.New(tx).CommitFeed(ctx, fd, &db.CommitFeedOptions{WebhookPending: r.ag.Config.WebhookUrl != ""}); err != nil {
 			logctx.Logger(ctx).With("error", err).Error("refresh_commit_feed_error")
 		}
 		logctx.Logger(ctx).

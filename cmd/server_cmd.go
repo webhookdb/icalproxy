@@ -25,7 +25,7 @@ var serverCmd = &cli.Command{
 	},
 	Action: func(c *cli.Context) error {
 		ctx, appGlobals := loadAppCtx(loadCtx(c, loadConfig(c)))
-		if err := db.Migrate(ctx, appGlobals.DB); err != nil {
+		if err := db.New(appGlobals.DB).Migrate(ctx); err != nil {
 			return internal.ErrWrap(err, "migrating schema")
 		}
 		logger := logctx.Logger(ctx)

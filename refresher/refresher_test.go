@@ -12,6 +12,7 @@ import (
 	"github.com/webhookdb/icalproxy/db"
 	"github.com/webhookdb/icalproxy/feed"
 	"github.com/webhookdb/icalproxy/fp"
+	. "github.com/webhookdb/icalproxy/icalproxytest"
 	"github.com/webhookdb/icalproxy/pgxt"
 	"github.com/webhookdb/icalproxy/refresher"
 	"github.com/webhookdb/icalproxy/types"
@@ -31,12 +32,14 @@ var _ = Describe("refresher", func() {
 	var ctx context.Context
 	var ag *appglobals.AppGlobals
 	var origin *ghttp.Server
+	var d *db.DB
 
 	BeforeEach(func() {
 		ctx, _ = logctx.WithNullLogger(context.Background())
 		ag = fp.Must(appglobals.New(ctx, fp.Must(config.LoadConfig())))
-		Expect(db.TruncateLocal(ctx, ag.DB)).To(Succeed())
+		Expect(TruncateLocal(ctx, ag.DB)).To(Succeed())
 		origin = ghttp.NewServer()
+		d = db.New(ag.DB)
 	})
 
 	AfterEach(func() {
@@ -58,48 +61,111 @@ var _ = Describe("refresher", func() {
 					ghttp.RespondWith(200, "FETCHED"),
 				),
 			)
-			Expect(db.CommitFeed(ag.DB, ctx,
+			Expect(d.CommitFeed(ctx,
 				feed.New(
 					fp.Must(url.Parse(origin.URL()+"/expired-ttl.ics")),
 					make(map[string]string),
 					200,
 					[]byte("EXPIRED"),
 					time.Now().Add(-5*time.Hour),
-				))).To(Succeed())
-			Expect(db.CommitFeed(ag.DB, ctx,
+				), nil)).To(Succeed())
+			Expect(d.CommitFeed(ctx,
 				feed.New(
 					fp.Must(url.Parse(origin.URL()+"/recent-ttl.ics")),
 					make(map[string]string),
 					200,
 					[]byte("RECENT"),
 					time.Now().Add(-time.Hour),
-				))).To(Succeed())
+				), nil)).To(Succeed())
 
 			Expect(refresher.New(ag).Run(ctx)).To(Succeed())
 
-			row := fp.Must(db.FetchContentsAsFeed(ag.DB, ctx, fp.Must(url.Parse(origin.URL()+"/expired-ttl.ics"))))
-			Expect(string(row.Body)).To(BeEquivalentTo("FETCHED"))
+			row := fp.Must(pgx.CollectExactlyOneRow[FeedRow](
+				fp.Must(ag.DB.Query(ctx, `SELECT * FROM icalproxy_feeds_v1 WHERE url = $1`, origin.URL()+"/expired-ttl.ics")),
+				pgx.RowToStructByName[FeedRow],
+			))
+			Expect(row).To(And(
+				HaveField("ContentsMD5", MustMD5("FETCHED")),
+				HaveField("WebhookPending", false),
+			))
 		})
-		It("processes every row that needs it", func() {
+		It("sets changed feeds as pending a webhook if configured", func() {
+			ag.Config.WebhookUrl = "https://fake"
+			Expect(d.CommitFeed(ctx,
+				feed.New(
+					fp.Must(url.Parse(origin.URL()+"/changed.ics")),
+					make(map[string]string),
+					200,
+					[]byte("CHANGED-ORIGINAL"),
+					time.Now().Add(-5*time.Hour),
+				), nil)).To(Succeed())
+			origin.RouteToHandler("GET", "/changed.ics",
+				ghttp.RespondWith(200, "CHANGED-DIFF"),
+			)
+			Expect(d.CommitFeed(ctx,
+				feed.New(
+					fp.Must(url.Parse(origin.URL()+"/unchanged.ics")),
+					make(map[string]string),
+					200,
+					[]byte("UNCHANGED"),
+					time.Now().Add(-5*time.Hour),
+				), nil)).To(Succeed())
+			origin.RouteToHandler("GET", "/unchanged.ics",
+				ghttp.RespondWith(200, "UNCHANGED"),
+			)
+			Expect(d.CommitFeed(ctx,
+				feed.New(
+					fp.Must(url.Parse(origin.URL()+"/erroring.ics")),
+					make(map[string]string),
+					200,
+					[]byte("ERRORING-ORIG"),
+					time.Now().Add(-5*time.Hour),
+				), nil)).To(Succeed())
+			origin.RouteToHandler("GET", "/erroring.ics",
+				ghttp.RespondWith(503, "ERRORING-FETCHED"),
+			)
+
+			Expect(refresher.New(ag).Run(ctx)).To(Succeed())
+
+			rows := fp.Must(pgx.CollectRows[FeedRow](
+				fp.Must(ag.DB.Query(ctx, `SELECT * FROM icalproxy_feeds_v1 WHERE starts_with(url, $1)`, origin.URL())),
+				pgx.RowToStructByName[FeedRow],
+			))
+			Expect(rows).To(And(
+				ContainElement(And(
+					HaveField("Url", HaveSuffix("erroring.ics")),
+					HaveField("WebhookPending", false),
+				)),
+				ContainElement(And(
+					HaveField("Url", HaveSuffix("unchanged.ics")),
+					HaveField("WebhookPending", false),
+				)),
+				ContainElement(And(
+					HaveField("Url", HaveSuffix("changed.ics")),
+					HaveField("WebhookPending", true),
+				)),
+			))
+		})
+		It("can work for large sets, without races or page issues", func() {
 			rowCnt := 1003 + rand.Intn(500)
 			for i := 0; i < rowCnt; i++ {
 				istr := strconv.Itoa(i)
-				Expect(db.CommitFeed(ag.DB, ctx,
+				Expect(d.CommitFeed(ctx,
 					feed.New(
 						fp.Must(url.Parse(origin.URL()+"/feed-"+istr)),
 						make(map[string]string),
 						200,
 						[]byte("FEED-"+istr),
 						time.Now().Add(-5*time.Hour),
-					))).To(Succeed())
+					), nil)).To(Succeed())
 				origin.RouteToHandler("GET", "/feed-"+istr, ghttp.RespondWith(200, "FETCHED-"+istr))
 			}
 			Expect(refresher.New(ag).Run(ctx)).To(Succeed())
 
-			row2 := fp.Must(db.FetchContentsAsFeed(ag.DB, ctx, fp.Must(url.Parse(origin.URL()+"/feed-2"))))
+			row2 := fp.Must(d.FetchContentsAsFeed(ctx, fp.Must(url.Parse(origin.URL()+"/feed-2"))))
 			Expect(string(row2.Body)).To(BeEquivalentTo("FETCHED-2"))
 
-			row1002 := fp.Must(db.FetchContentsAsFeed(ag.DB, ctx, fp.Must(url.Parse(origin.URL()+"/feed-1002"))))
+			row1002 := fp.Must(d.FetchContentsAsFeed(ctx, fp.Must(url.Parse(origin.URL()+"/feed-1002"))))
 			Expect(string(row1002.Body)).To(BeEquivalentTo("FETCHED-1002"))
 		})
 		It("commits rows that fail to fetch", func() {
@@ -109,21 +175,25 @@ var _ = Describe("refresher", func() {
 					ghttp.RespondWith(401, "errbody"),
 				),
 			)
-			Expect(db.CommitFeed(ag.DB, ctx,
+			Expect(d.CommitFeed(ctx,
 				feed.New(
 					fp.Must(url.Parse(origin.URL()+"/expired-ttl.ics")),
 					make(map[string]string),
 					200,
 					[]byte("EXPIRED"),
 					time.Now().Add(-5*time.Hour),
-				))).To(Succeed())
+				), nil)).To(Succeed())
 
 			Expect(refresher.New(ag).Run(ctx)).To(Succeed())
 
-			row := fp.Must(db.FetchContentsAsFeed(ag.DB, ctx, fp.Must(url.Parse(origin.URL()+"/expired-ttl.ics"))))
+			row := fp.Must(pgx.CollectExactlyOneRow[FeedRow](
+				fp.Must(ag.DB.Query(ctx, `SELECT * FROM icalproxy_feeds_v1 WHERE url = $1`, origin.URL()+"/expired-ttl.ics")),
+				pgx.RowToStructByName[FeedRow],
+			))
 			Expect(row).To(And(
-				HaveField("HttpStatus", 401),
-				HaveField("Body", BeEquivalentTo("errbody")),
+				HaveField("FetchStatus", 401),
+				HaveField("FetchErrorBody", BeEquivalentTo("errbody")),
+				HaveField("WebhookPending", false),
 			))
 		})
 		It("commits unchanged rows", func() {
@@ -133,20 +203,25 @@ var _ = Describe("refresher", func() {
 					ghttp.RespondWith(200, "SAMEBODY"),
 				),
 			)
-			Expect(db.CommitFeed(ag.DB, ctx,
+			Expect(d.CommitFeed(ctx,
 				feed.New(
 					fp.Must(url.Parse(origin.URL()+"/expired-ttl.ics")),
 					make(map[string]string),
 					200,
 					[]byte("SAMEBODY"),
 					time.Now().Add(-5*time.Hour),
-				))).To(Succeed())
+				), &db.CommitFeedOptions{WebhookPending: false})).To(Succeed())
 
 			Expect(refresher.New(ag).Run(ctx)).To(Succeed())
-			row := fp.Must(db.FetchContentsAsFeed(ag.DB, ctx, fp.Must(url.Parse(origin.URL()+"/expired-ttl.ics"))))
+			row := fp.Must(pgx.CollectExactlyOneRow[FeedRow](
+				fp.Must(ag.DB.Query(ctx, `SELECT * FROM icalproxy_feeds_v1 WHERE url = $1`, origin.URL()+"/expired-ttl.ics")),
+				pgx.RowToStructByName[FeedRow],
+			))
 			Expect(row).To(And(
-				HaveField("Body", BeEquivalentTo("SAMEBODY")),
-				HaveField("FetchedAt", BeTemporally("~", time.Now(), time.Minute)),
+				HaveField("ContentsMD5", MustMD5("SAMEBODY")),
+				HaveField("CheckedAt", BeTemporally("~", time.Now(), time.Minute)),
+				// Make sure this doesn't get set back to true when there is no change
+				HaveField("WebhookPending", false),
 			))
 		})
 	})
@@ -161,21 +236,21 @@ var _ = Describe("refresher", func() {
 			ag.Config.IcalTTLMap["60MINLOCALHOST"] = types.TTL(60 * time.Minute)
 			hd := make(map[string]string)
 
-			Expect(db.CommitFeed(ag.DB, ctx,
-				feed.New(fp.Must(url.Parse("https://30min.localhost/15old")), hd, 200, []byte("ORIGINAL"), time.Now().Add(-15*time.Minute)),
+			Expect(d.CommitFeed(ctx,
+				feed.New(fp.Must(url.Parse("https://30min.localhost/15old")), hd, 200, []byte("ORIGINAL"), time.Now().Add(-15*time.Minute)), nil,
 			)).To(Succeed())
-			Expect(db.CommitFeed(ag.DB, ctx,
-				feed.New(fp.Must(url.Parse("https://30min.localhost/45old")), hd, 200, []byte("ORIGINAL"), time.Now().Add(-45*time.Minute)),
-			)).To(Succeed())
-
-			Expect(db.CommitFeed(ag.DB, ctx,
-				feed.New(fp.Must(url.Parse("https://60min.localhost/45old")), hd, 200, []byte("ORIGINAL"), time.Now().Add(-45*time.Minute)),
-			)).To(Succeed())
-			Expect(db.CommitFeed(ag.DB, ctx,
-				feed.New(fp.Must(url.Parse("https://60min.localhost/75old")), hd, 200, []byte("ORIGINAL"), time.Now().Add(-75*time.Minute)),
+			Expect(d.CommitFeed(ctx,
+				feed.New(fp.Must(url.Parse("https://30min.localhost/45old")), hd, 200, []byte("ORIGINAL"), time.Now().Add(-45*time.Minute)), nil,
 			)).To(Succeed())
 
-			Expect(pgxt.WithTransaction(ctx, ag.DB, func(tx pgx.Tx) error {
+			Expect(d.CommitFeed(ctx,
+				feed.New(fp.Must(url.Parse("https://60min.localhost/45old")), hd, 200, []byte("ORIGINAL"), time.Now().Add(-45*time.Minute)), nil,
+			)).To(Succeed())
+			Expect(d.CommitFeed(ctx,
+				feed.New(fp.Must(url.Parse("https://60min.localhost/75old")), hd, 200, []byte("ORIGINAL"), time.Now().Add(-75*time.Minute)), nil,
+			)).To(Succeed())
+
+			Expect(pgxt.WithTransaction(ctx, d.Conn(), func(tx pgx.Tx) error {
 				rows, err := refresher.New(ag).SelectRowsToProcess(ctx, tx)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(rows).To(ConsistOf(

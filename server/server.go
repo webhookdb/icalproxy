@@ -9,11 +9,11 @@ import (
 	"github.com/webhookdb/icalproxy/appglobals"
 	"github.com/webhookdb/icalproxy/db"
 	"github.com/webhookdb/icalproxy/feed"
+	"github.com/webhookdb/icalproxy/pgxt"
 	"github.com/webhookdb/icalproxy/refresher"
 	"github.com/webhookdb/icalproxy/types"
 	"net/http"
 	"net/url"
-	"runtime"
 	"strconv"
 	"time"
 )
@@ -91,7 +91,7 @@ func (h *endpointHandler) extractUrl() error {
 }
 
 func (h *endpointHandler) loadRow(ctx context.Context) error {
-	r, err := db.FetchFeedRow(h.ag.DB, ctx, h.url)
+	r, err := db.New(h.ag.DB).FetchFeedRow(ctx, h.url)
 	if err != nil {
 		return ErrFallback
 	}
@@ -126,7 +126,7 @@ func (h *endpointHandler) serveIfTtl(ctx context.Context) (bool, error) {
 	timeSinceFetch := time.Now().Sub(h.row.ContentsLastModified)
 	maxTtl := time.Duration(feed.TTLFor(h.url, h.ag.Config.IcalTTLMap))
 	if timeSinceFetch <= maxTtl {
-		fd, err := db.FetchContentsAsFeed(h.ag.DB, ctx, h.url)
+		fd, err := db.New(h.ag.DB).FetchContentsAsFeed(ctx, h.url)
 		if err != nil {
 			return false, ErrFallback
 		}
@@ -141,7 +141,8 @@ func (h *endpointHandler) refetchAndCommit(ctx context.Context) (*feed.Feed, err
 	if err != nil {
 		return nil, err
 	}
-	if err := db.CommitFeed(h.ag.DB, ctx, fd); err != nil {
+	// If the commit is coming through the server, we don't need to send a webhook.
+	if err := db.New(h.ag.DB).CommitFeed(ctx, fd, nil); err != nil {
 		logctx.Logger(ctx).With("error", err).Error("commit_feed_error")
 	}
 	return fd, err
@@ -181,29 +182,25 @@ func (h *endpointHandler) runAsProxy(ctx context.Context) error {
 }
 
 func handleStats(ag *appglobals.AppGlobals) echo.HandlerFunc {
-	bToMb := func(b uint64) uint64 {
-		return b / 1024 / 1024
-	}
 	return func(c echo.Context) error {
 		ctx := api.StdContext(c)
-		var m runtime.MemStats
-		runtime.ReadMemStats(&m)
-		resp := map[string]any{
-			"alloc_heap_mb":       bToMb(m.HeapAlloc),
-			"alloc_cumulative_mb": bToMb(m.TotalAlloc),
-			"alloc_sys_mb":        bToMb(m.Sys),
-			"alloc_gc":            m.NumGC,
-			"num_goroutines":      runtime.NumGoroutine(),
-		}
 		countStart := time.Now()
-		rows, err := refresher.New(ag).CountRowsAwaitingRefresh(ctx)
+		refreshRowCnt, err := refresher.New(ag).CountRowsAwaitingRefresh(ctx)
 		if err != nil {
 			logctx.Logger(ctx).With("error", err).Error("counting_rows_awaiting_refresh")
-			rows = -1
+			refreshRowCnt = -1
 		}
 		countLatency := time.Since(countStart)
-		resp["pending_row_count"] = rows
-		resp["db_count_latency"] = countLatency.Seconds()
+		whRowCnt, err := pgxt.GetScalar[int64](ctx, ag.DB, "SELECT count(1) FROM icalproxy_feeds_v1 WHERE webhook_pending")
+		if err != nil {
+			logctx.Logger(ctx).With("error", err).Error("counting_rows_pending_webhook")
+			whRowCnt = -1
+		}
+		resp := map[string]any{
+			"pending_refresh_count": refreshRowCnt,
+			"db_count_latency":      countLatency.Seconds(),
+			"pending_webhooks":      whRowCnt,
+		}
 		return c.JSON(http.StatusOK, resp)
 	}
 }

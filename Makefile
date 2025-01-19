@@ -36,10 +36,11 @@ lint:
 
 check: lint vet test
 
-db-reset:
+db-drop:
 	${BIN} db reset
 db-migrate:
 	${BIN} db migrate
+db-reset: build db-drop db-migrate
 
 update-lithic-deps:
 	go get github.com/rgalanakis/golangal@latest
