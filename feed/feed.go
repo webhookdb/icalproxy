@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/md5"
 	"encoding/hex"
+	"errors"
 	"github.com/webhookdb/icalproxy/config"
 	"github.com/webhookdb/icalproxy/internal"
 	"github.com/webhookdb/icalproxy/types"
@@ -50,23 +51,49 @@ type Feed struct {
 	FetchedAt   time.Time
 }
 
-func Fetch(ctx context.Context, url *url.URL) (*Feed, error) {
+func Fetch(ctx context.Context, u *url.URL) (*Feed, error) {
 	now := time.Now().Truncate(time.Second)
-	req, err := http.NewRequestWithContext(ctx, "GET", url.String(), nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", u.String(), nil)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("User-Agent", config.UserAgent)
 	resp, err := httpClient.Do(req)
-	if err != nil {
+	if isOriginBasedError(err) {
+		// These are timeouts, invalid hosts, etc. We should treat these like normal HTTP errors,
+		// but with a special 599 status code (0 is dangerous because most people check status >= 400 for errors).
+		body := []byte(err.Error())
+		return &Feed{
+			Url:         u,
+			HttpHeaders: make(map[string]string),
+			HttpStatus:  599,
+			Body:        body,
+			MD5:         internal.MD5HashHex(body),
+			FetchedAt:   now,
+		}, nil
+	} else if err != nil {
 		return nil, err
 	}
 	b, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, internal.ErrWrap(err, "feed fetch failed reading body")
 	}
-	f := New(url, internal.HeaderMap(resp.Header), resp.StatusCode, b, now)
+	f := New(u, internal.HeaderMap(resp.Header), resp.StatusCode, b, now)
 	return f, nil
+}
+
+func isOriginBasedError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) {
+		return true
+	}
+	if strings.HasPrefix(err.Error(), "x509: ") || strings.Contains(err.Error(), ": x509: ") {
+		return true
+	}
+	return false
 }
 
 func New(url *url.URL, headers map[string]string, httpStatus int, body []byte, fetchedAt time.Time) *Feed {
@@ -82,11 +109,24 @@ func New(url *url.URL, headers map[string]string, httpStatus int, body []byte, f
 	return f
 }
 
-var httpClient *http.Client
+type IHttpClient interface {
+	Do(req *http.Request) (*http.Response, error)
+}
+
+var httpClient IHttpClient = &http.Client{}
 
 func init() {
 	httpClient = &http.Client{
-		// This can be overridden by passing a context timeout, like refresher does
+		// This should be overridden by passing a context timeout, like refresher does
 		Timeout: time.Minute,
 	}
+}
+
+// WithHttpClient temporarily sets the http client used for fetching.
+// Only use this when testing since it isn't threadsafe.
+func WithHttpClient(c IHttpClient, cb func() error) error {
+	old := httpClient
+	defer func() { httpClient = old }()
+	httpClient = c
+	return cb()
 }

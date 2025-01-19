@@ -2,6 +2,9 @@ package feed_test
 
 import (
 	"context"
+	"crypto/x509"
+	"errors"
+	"fmt"
 	"github.com/lithictech/go-aperitif/v2/logctx"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -9,6 +12,7 @@ import (
 	"github.com/webhookdb/icalproxy/feed"
 	"github.com/webhookdb/icalproxy/fp"
 	"github.com/webhookdb/icalproxy/types"
+	"net/http"
 	"net/url"
 	"testing"
 	"time"
@@ -20,7 +24,11 @@ func TestFeed(t *testing.T) {
 }
 
 var _ = Describe("feed", func() {
-	ctx, _ := logctx.WithNullLogger(context.Background())
+	var ctx context.Context
+
+	BeforeEach(func() {
+		ctx, _ = logctx.WithNullLogger(context.Background())
+	})
 
 	Describe("TTLFor", func() {
 		ttlmap := map[types.NormalizedHostname]types.TTL{
@@ -78,5 +86,55 @@ var _ = Describe("feed", func() {
 				HaveField("Body", BeEquivalentTo("hi")),
 			))
 		})
+		It("returns the feed in the case of a url error (http timeout, etc)", func() {
+			server.AppendHandlers(
+				ghttp.CombineHandlers(
+					ghttp.VerifyRequest("GET", "/feed.ics", ""),
+					func(w http.ResponseWriter, r *http.Request) {
+						time.Sleep(1 * time.Second)
+						w.WriteHeader(500)
+					},
+				),
+			)
+			timeoutCtx, cancel := context.WithTimeout(ctx, 0)
+			defer cancel()
+			feed, err := feed.Fetch(timeoutCtx, fp.Must(url.Parse(server.URL()+"/feed.ics")))
+			Expect(err).ToNot(HaveOccurred())
+			Expect(feed).To(And(
+				HaveField("HttpStatus", 599),
+				HaveField("Body", ContainSubstring("context deadline exceeded")),
+			))
+		})
+		It("returns the feed in the case of a certificate error", func() {
+			certErr := x509.SystemRootsError{Err: errors.New("bad cert")}
+			Expect(feed.WithHttpClient(&erroringHttpClient{Err: certErr}, func() error {
+				feed, err := feed.Fetch(ctx, fp.Must(url.Parse(server.URL()+"/feed.ics")))
+				Expect(err).ToNot(HaveOccurred())
+				Expect(feed).To(And(
+					HaveField("HttpStatus", 599),
+					HaveField("Body", ContainSubstring("failed to load system roots")),
+				))
+				return nil
+			})).To(Succeed())
+
+			wrappedErr := fmt.Errorf("wrapped: %w", certErr)
+			Expect(feed.WithHttpClient(&erroringHttpClient{Err: wrappedErr}, func() error {
+				feed, err := feed.Fetch(ctx, fp.Must(url.Parse(server.URL()+"/feed.ics")))
+				Expect(err).ToNot(HaveOccurred())
+				Expect(feed).To(And(
+					HaveField("HttpStatus", 599),
+					HaveField("Body", ContainSubstring("failed to load system roots")),
+				))
+				return nil
+			})).To(Succeed())
+		})
 	})
 })
+
+type erroringHttpClient struct {
+	Err error
+}
+
+func (e *erroringHttpClient) Do(req *http.Request) (*http.Response, error) {
+	return nil, e.Err
+}

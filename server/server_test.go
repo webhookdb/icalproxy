@@ -20,6 +20,7 @@ import (
 	"github.com/webhookdb/icalproxy/internal"
 	"github.com/webhookdb/icalproxy/server"
 	"github.com/webhookdb/icalproxy/types"
+	"net/http"
 	"net/url"
 	"testing"
 	"time"
@@ -247,6 +248,29 @@ var _ = Describe("server", func() {
 					HaveKeyWithValue("Content-Type", "application/custom"),
 					HaveKeyWithValue("Ical-Proxy-Origin-Error", "403"),
 					HaveKeyWithValue("Ical-Proxy-Fallback", "true"),
+				))
+			})
+		})
+		Describe("when the origin request times out", func() {
+			BeforeEach(func() {
+				ag.Config.RequestTimeout = 0
+			})
+			It("treats it like a normal error (421)", func() {
+				origin.AppendHandlers(
+					ghttp.CombineHandlers(
+						ghttp.VerifyRequest("GET", "/feed.ics", ""),
+						func(w http.ResponseWriter, req *http.Request) {
+							time.Sleep(time.Second)
+						},
+					),
+				)
+				req := NewRequest("GET", serverRequestUrl, nil)
+				rr := Serve(e, req)
+				Expect(rr).To(HaveResponseCode(421))
+				Expect(rr.Body.String()).To(HaveSuffix(`/feed.ics": context deadline exceeded`))
+				Expect(internal.HeaderMap(rr.Header())).To(And(
+					HaveKeyWithValue("Content-Type", "text/plain"),
+					HaveKeyWithValue("Ical-Proxy-Origin-Error", "599"),
 				))
 			})
 		})

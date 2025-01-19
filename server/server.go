@@ -137,7 +137,9 @@ func (h *endpointHandler) serveIfTtl(ctx context.Context) (bool, error) {
 }
 
 func (h *endpointHandler) refetchAndCommit(ctx context.Context) (*feed.Feed, error) {
-	fd, err := feed.Fetch(ctx, h.url)
+	timeoutctx, cancel := context.WithTimeout(ctx, time.Duration(h.ag.Config.RequestTimeout)*time.Second)
+	defer cancel()
+	fd, err := feed.Fetch(timeoutctx, h.url)
 	if err != nil {
 		return nil, err
 	}
@@ -156,7 +158,11 @@ func (h *endpointHandler) serveResponse(_ context.Context, fd *feed.Feed) error 
 		// some use a 403 vs a 404 for example. So return everything as a 421 and include the original status code
 		// as a header.
 		h.c.Response().Header().Set("Ical-Proxy-Origin-Error", strconv.Itoa(fd.HttpStatus))
-		return h.c.Blob(http.StatusMisdirectedRequest, fd.HttpHeaders["Content-Type"], fd.Body)
+		contentType := fd.HttpHeaders["Content-Type"]
+		if contentType == "" {
+			contentType = "text/plain"
+		}
+		return h.c.Blob(http.StatusMisdirectedRequest, contentType, fd.Body)
 	}
 	h.c.Response().Header().Set("Content-Type", feed.CalendarContentType)
 	h.c.Response().Header().Set("Content-Length", strconv.Itoa(len(fd.Body)))

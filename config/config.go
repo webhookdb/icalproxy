@@ -36,7 +36,12 @@ type Config struct {
 	RefreshPageSize int `env:"REFRESH_PAGE_SIZE, default=100"`
 	// Seconds to wait for an origin server before timing out an ICalendar feed request.
 	// Only used for the refresh routine.
-	RefreshTimeout  int    `env:"REFRESH_TIMEOUT, default=30"`
+	RefreshTimeout int `env:"REFRESH_TIMEOUT, default=30"`
+	// When requesting an ICS url, and it is not in the database or has an expired TTL,
+	// a request is made synchronously. Because this is a slow, blocking request,
+	// it should have a fast timeout. If that request times out, the URL is still added
+	// to the database so it can be synced by the refresher, in case it's just a slow URL.
+	RequestTimeout  int    `env:"REQUEST_TIMEOUT, default=7"`
 	SentryDSN       string `env:"SENTRY_DSN"`
 	WebhookPageSize int    `env:"WEBHOOK_PAGE_SIZE, default=100"`
 	WebhookUrl      string `env:"WEBHOOK_URL"`
