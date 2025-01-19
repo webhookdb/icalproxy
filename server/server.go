@@ -9,9 +9,11 @@ import (
 	"github.com/webhookdb/icalproxy/appglobals"
 	"github.com/webhookdb/icalproxy/db"
 	"github.com/webhookdb/icalproxy/feed"
+	"github.com/webhookdb/icalproxy/refresher"
 	"github.com/webhookdb/icalproxy/types"
 	"net/http"
 	"net/url"
+	"runtime"
 	"strconv"
 	"time"
 )
@@ -27,6 +29,7 @@ func Register(_ context.Context, e *echo.Echo, ag *appglobals.AppGlobals) error 
 	}
 	e.HEAD("/", handle(ag), mw...)
 	e.GET("/", handle(ag), mw...)
+	e.GET("/stats", handleStats(ag), mw...)
 	return nil
 }
 
@@ -175,4 +178,32 @@ func (h *endpointHandler) runAsProxy(ctx context.Context) error {
 	}
 	h.c.Response().Header().Set("Ical-Proxy-Fallback", "true")
 	return h.serveResponse(ctx, resp)
+}
+
+func handleStats(ag *appglobals.AppGlobals) echo.HandlerFunc {
+	bToMb := func(b uint64) uint64 {
+		return b / 1024 / 1024
+	}
+	return func(c echo.Context) error {
+		ctx := api.StdContext(c)
+		var m runtime.MemStats
+		runtime.ReadMemStats(&m)
+		resp := map[string]any{
+			"alloc_heap_mb":       bToMb(m.HeapAlloc),
+			"alloc_cumulative_mb": bToMb(m.TotalAlloc),
+			"alloc_sys_mb":        bToMb(m.Sys),
+			"alloc_gc":            m.NumGC,
+			"num_goroutines":      runtime.NumGoroutine(),
+		}
+		countStart := time.Now()
+		rows, err := refresher.New(ag).CountRowsAwaitingRefresh(ctx)
+		if err != nil {
+			logctx.Logger(ctx).With("error", err).Error("counting_rows_awaiting_refresh")
+			rows = -1
+		}
+		countLatency := time.Since(countStart)
+		resp["pending_row_count"] = rows
+		resp["db_count_latency"] = countLatency.Seconds()
+		return c.JSON(http.StatusOK, resp)
+	}
 }

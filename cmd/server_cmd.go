@@ -3,6 +3,7 @@ package cmd
 import (
 	"errors"
 	"fmt"
+	"github.com/labstack/echo/v4"
 	"github.com/lithictech/go-aperitif/v2/api"
 	"github.com/lithictech/go-aperitif/v2/logctx"
 	"github.com/urfave/cli/v2"
@@ -12,6 +13,7 @@ import (
 	"github.com/webhookdb/icalproxy/refresher"
 	"github.com/webhookdb/icalproxy/server"
 	"net/http"
+	"time"
 )
 
 var serverCmd = &cli.Command{
@@ -29,7 +31,20 @@ var serverCmd = &cli.Command{
 		e := api.New(api.Config{
 			Logger:                 logger,
 			LoggingMiddlwareConfig: api.LoggingMiddlwareConfig{},
-			HealthResponse:         map[string]interface{}{"o": "k"},
+			HealthHandler: func(c echo.Context) error {
+				dbstart := time.Now()
+				var dblatency float64
+				if _, err := appGlobals.DB.Exec(ctx, "SELECT 1"); err != nil {
+					dblatency = -1
+				} else {
+					dblatency = time.Since(dbstart).Seconds()
+				}
+				resp := map[string]any{
+					"g": 1,
+					"d": dblatency,
+				}
+				return c.JSON(http.StatusOK, resp)
+			},
 			StatusResponse: map[string]interface{}{
 				"build_sha":       config.BuildSha,
 				"build_time":      config.BuildTime,

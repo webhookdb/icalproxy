@@ -268,4 +268,19 @@ var _ = Describe("server", func() {
 			Expect(rr.Body.Len()).To(Equal(0))
 		})
 	})
+	Describe("GET /stats", func() {
+		BeforeEach(func() {
+			Expect(server.Register(ctx, e, ag)).To(Succeed())
+		})
+
+		It("returns row latency", func() {
+			req := NewRequest("GET", "/stats", nil)
+			rr := Serve(e, req)
+			Expect(rr).To(HaveResponseCode(200))
+			Expect(MustUnmarshalFrom(rr.Body)).To(And(
+				HaveKeyWithValue("num_goroutines", BeNumerically(">", 1)),
+				HaveKeyWithValue("pending_row_count", BeEquivalentTo(0)),
+			))
+		})
+	})
 })

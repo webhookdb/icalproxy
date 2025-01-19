@@ -62,6 +62,17 @@ func (r *Refresher) Run(ctx context.Context) error {
 }
 
 func (r *Refresher) buildSelectQuery(now time.Time) string {
+	whereSql := r.buildSelectQueryWhere(now)
+	q := fmt.Sprintf(`SELECT url, contents_md5
+FROM icalproxy_feeds_v1
+WHERE %s
+LIMIT %d
+FOR UPDATE SKIP LOCKED
+`, whereSql, r.ag.Config.RefreshPageSize)
+	return q
+}
+
+func (r *Refresher) buildSelectQueryWhere(now time.Time) string {
 	now = now.UTC()
 	nowFmt := now.Format(time.RFC3339)
 	defaultTTLMillis := time.Duration(feed.DefaultTTL).Milliseconds()
@@ -80,13 +91,7 @@ func (r *Refresher) buildSelectQuery(now time.Time) string {
 		conditions,
 		fmt.Sprintf("checked_at < '%s'::timestamptz - '%dms'::interval", nowFmt, defaultTTLMillis),
 	)
-	q := fmt.Sprintf(`SELECT url, contents_md5
-FROM icalproxy_feeds_v1
-WHERE %s
-LIMIT %d
-FOR UPDATE SKIP LOCKED
-`, strings.Join(conditions, "\nOR "), r.ag.Config.RefreshPageSize)
-	return q
+	return strings.Join(conditions, "\nOR ")
 }
 
 func (r *Refresher) SelectRowsToProcess(ctx context.Context, tx pgx.Tx) ([]RowToProcess, error) {
@@ -114,6 +119,12 @@ func (r *Refresher) ExplainSelectQuery(ctx context.Context) (string, error) {
 		return nil
 	})
 	return strings.Join(lines, "\n"), err
+}
+
+func (r *Refresher) CountRowsAwaitingRefresh(ctx context.Context) (int64, error) {
+	whereSql := r.buildSelectQueryWhere(time.Now())
+	q := fmt.Sprintf(`SELECT count(1) FROM icalproxy_feeds_v1 WHERE %s`, whereSql)
+	return pgxt.GetScalar[int64](ctx, r.ag.DB, q)
 }
 
 func (r *Refresher) processChunk(ctx context.Context) (int, error) {
