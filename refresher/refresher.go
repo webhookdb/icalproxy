@@ -67,30 +67,27 @@ func (r *Refresher) buildSelectQuery() string {
 	now := time.Now().UTC()
 	nowFmt := now.Format(time.RFC3339)
 	defaultTTLMillis := time.Duration(feed.DefaultTTL).Milliseconds()
-	var checkedAtCond string
-	if len(r.ag.Config.IcalTTLMap) > 0 {
-		whenStatements := make([]string, 0, len(r.ag.Config.IcalTTLMap))
-		for host, ttl := range r.ag.Config.IcalTTLMap {
-			if host == "" {
-				continue
-			}
-			stmt := fmt.Sprintf(
-				"WHEN url_host_rev ^@ '%s' THEN '%s'::timestamptz - '%dms'::interval",
-				host.Reverse(), nowFmt, time.Duration(ttl).Milliseconds(),
-			)
-			whenStatements = append(whenStatements, stmt)
+	conditions := make([]string, 0, len(r.ag.Config.IcalTTLMap))
+	for host, ttl := range r.ag.Config.IcalTTLMap {
+		if host == "" {
+			continue
 		}
-		whenStatements = append(whenStatements, fmt.Sprintf("ELSE '%s'::timestamptz - '%dms'::interval", nowFmt, defaultTTLMillis))
-		checkedAtCond = fmt.Sprintf("(CASE\n%s\nEND)", strings.Join(whenStatements, "\n"))
-	} else {
-		checkedAtCond = fmt.Sprintf("'%s'::timestamptz - '%dms'::interval", nowFmt, defaultTTLMillis)
+		stmt := fmt.Sprintf(
+			"(starts_with(url_host_rev, '%s') and checked_at < '%s'::timestamptz - '%dms'::interval)",
+			host.Reverse(), nowFmt, time.Duration(ttl).Milliseconds(),
+		)
+		conditions = append(conditions, stmt)
 	}
+	conditions = append(
+		conditions,
+		fmt.Sprintf("checked_at < '%s'::timestamptz - '%dms'::interval", nowFmt, defaultTTLMillis),
+	)
 	q := fmt.Sprintf(`SELECT url, contents_md5
 FROM icalproxy_feeds_v1
-WHERE checked_at < %s
+WHERE %s
 LIMIT %d
 FOR UPDATE SKIP LOCKED
-`, checkedAtCond, r.ag.Config.RefreshPageSize)
+`, strings.Join(conditions, "\nOR "), r.ag.Config.RefreshPageSize)
 	return q
 }
 
@@ -103,7 +100,22 @@ func (r *Refresher) SelectRowsToProcess(ctx context.Context, tx pgx.Tx) ([]RowTo
 		rtp := RowToProcess{}
 		return rtp, r.Scan(&rtp.Url, &rtp.MD5)
 	})
+}
 
+func (r *Refresher) ExplainSelectQuery(ctx context.Context) (string, error) {
+	var lines []string
+	err := pgxt.WithTransaction(ctx, r.ag.DB, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, "SET enable_seqscan = 'off'"); err != nil {
+			return err
+		}
+		lns, err := pgxt.GetScalars[string](ctx, r.ag.DB, "EXPLAIN ANALYZE "+r.selectQuery)
+		if err != nil {
+			return err
+		}
+		lines = lns
+		return nil
+	})
+	return strings.Join(lines, "\n"), err
 }
 
 func (r *Refresher) processChunk(ctx context.Context) (int, error) {

@@ -161,7 +161,28 @@ var _ = Describe("refresher", func() {
 				))
 				return nil
 			})).To(Succeed())
-
+		})
+		It("uses indices for its query", func() {
+			// Test the actual query, we want to make sure we don't accidentally regress on performance
+			// since this is a really important query to keep fast.
+			ag.Config.IcalTTLMap["EXAMPLEORG"] = types.TTL(time.Minute)
+			expl, err := refresher.New(ag).ExplainSelectQuery(ctx)
+			Expect(err).NotTo(HaveOccurred())
+			// Limit  (cost=12.54..16.57 rows=1 width=63) (actual time=0.025..0.025 rows=0 loops=1)
+			//  ->  LockRows  (cost=12.54..16.57 rows=1 width=63) (actual time=0.024..0.024 rows=0 loops=1)
+			//        ->  Bitmap Heap Scan on icalproxy_feeds_v1  (cost=12.54..16.56 rows=1 width=63) (actual time=0.023..0.024 rows=0 loops=1)
+			//              Recheck Cond: (starts_with(url_host_rev, 'GROELPMAXE'::text) OR (checked_at < ('2025-01-19 00:26:55+00'::timestamp with time zone - '02:00:00'::interval)))
+			//              Filter: ((starts_with(url_host_rev, 'GROELPMAXE'::text) AND (checked_at < ('2025-01-19 00:26:55+00'::timestamp with time zone - '00:01:00'::interval))) OR (checked_at < ('2025-01-19 00:26:55+00'::timestamp with time zone - '02:00:00'::interval)))
+			//              ->  BitmapOr  (cost=12.54..12.54 rows=1 width=0) (actual time=0.021..0.021 rows=0 loops=1)
+			//                    ->  Bitmap Index Scan on icalproxy_feeds_v1_url_host_rev_idx  (cost=0.00..8.27 rows=1 width=0) (actual time=0.018..0.018 rows=0 loops=1)
+			//                          Index Cond: ((url_host_rev >= 'GROELPMAXE'::text) AND (url_host_rev < 'GROELPMAXF'::text))
+			//                    ->  Bitmap Index Scan on icalproxy_feeds_v1_checked_at_idx  (cost=0.00..4.27 rows=1 width=0) (actual time=0.002..0.002 rows=0 loops=1)
+			//                          Index Cond: (checked_at < ('2025-01-19 00:26:55+00'::timestamp with time zone - '02:00:00'::interval))
+			// Planning Time: 0.868 ms
+			// Execution Time: 0.551 ms
+			Expect(expl).To(ContainSubstring("Index Cond: ((url_host_rev >= 'GROELPMAXE'::text) AND (url_host_rev < 'GROELPMAXF'::text))"))
+			Expect(expl).To(ContainSubstring("Index Cond: (checked_at < "))
+			Expect(expl).To(ContainSubstring("LockRows"))
 		})
 	})
 })
