@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"github.com/getsentry/sentry-go"
 	"github.com/lithictech/go-aperitif/v2/convext"
 	"github.com/lithictech/go-aperitif/v2/logctx"
 	"github.com/urfave/cli/v2"
@@ -36,6 +37,10 @@ func s1(s string) []string {
 }
 
 func loadAppCtx(ctx context.Context, cfg config.Config) (context.Context, *appglobals.AppGlobals) {
+	if err := sentry.Init(sentry.ClientOptions{Dsn: cfg.SentryDSN, TracesSampleRate: 0}); err != nil {
+		logctx.Logger(ctx).With("error", err).Error("sentry_initialization_failed")
+	}
+
 	appCtx, err := appglobals.New(ctx, cfg)
 	if err != nil {
 		log.Fatal(err)

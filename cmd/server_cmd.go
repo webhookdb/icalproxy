@@ -3,6 +3,7 @@ package cmd
 import (
 	"errors"
 	"fmt"
+	sentryecho "github.com/getsentry/sentry-go/echo"
 	"github.com/labstack/echo/v4"
 	"github.com/lithictech/go-aperitif/v2/api"
 	"github.com/lithictech/go-aperitif/v2/logctx"
@@ -52,6 +53,9 @@ var serverCmd = &cli.Command{
 				"message":         "icalproxy",
 			},
 		})
+		e.Use(sentryecho.New(sentryecho.Options{
+			Repanic: true,
+		}))
 
 		if err := server.Register(ctx, e, appGlobals); err != nil {
 			return internal.ErrWrap(err, "failed to register v1 endpoints")
