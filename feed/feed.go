@@ -8,7 +8,6 @@ import (
 	"github.com/webhookdb/icalproxy/config"
 	"github.com/webhookdb/icalproxy/internal"
 	"github.com/webhookdb/icalproxy/types"
-	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -77,9 +76,22 @@ func Fetch(ctx context.Context, u *url.URL) (*Feed, error) {
 	} else if err != nil {
 		return nil, err
 	}
-	b, err := io.ReadAll(resp.Body)
+	b, err := internal.ReadAllWithContext(ctx, resp.Body)
 	if err != nil {
-		return nil, internal.ErrWrap(err, "feed fetch failed reading body")
+		// If reading the body fails, we need to record an error, even if the HTTP response was a success.
+		statusCode := resp.StatusCode
+		if statusCode < 400 {
+			statusCode = 599
+		}
+		body := []byte("error reading body: " + err.Error())
+		return &Feed{
+			Url:         u,
+			HttpHeaders: internal.HeaderMap(resp.Header),
+			HttpStatus:  statusCode,
+			Body:        body,
+			MD5:         internal.MD5HashHex(body),
+			FetchedAt:   now,
+		}, nil
 	}
 	f := New(u, internal.HeaderMap(resp.Header), resp.StatusCode, b, now)
 	return f, nil

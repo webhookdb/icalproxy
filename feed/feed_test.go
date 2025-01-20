@@ -129,6 +129,51 @@ var _ = Describe("feed", func() {
 				return nil
 			})).To(Succeed())
 		})
+		It("returns the feed as an error in the case of an error or timeout reading the body of a success", func() {
+			cancelCtx, cancel := context.WithCancel(ctx)
+			server.AppendHandlers(
+				ghttp.CombineHandlers(
+					ghttp.VerifyRequest("GET", "/feed.ics", ""),
+					func(w http.ResponseWriter, r *http.Request) {
+						// Tell the server the body is coming
+						w.WriteHeader(200)
+						// We need to cancel the context after the body starts getting read;
+						// if we cancel it immediately we'll time out the GET itself so won't test the body read.
+						// So start writing the body, enough to fill buffers, then cancel the context.
+						for i := 0; i < 25_000; i++ {
+							_, _ = w.Write([]byte("1"))
+						}
+						cancel()
+					},
+				))
+			feed, err := feed.Fetch(cancelCtx, fp.Must(url.Parse(server.URL()+"/feed.ics")))
+			Expect(err).ToNot(HaveOccurred())
+			Expect(feed).To(And(
+				HaveField("HttpStatus", 599),
+				HaveField("Body", ContainSubstring("error reading body: context canceled")),
+			))
+		})
+		It("returns the feed error in the case of an error or timeout reading the body of an error", func() {
+			cancelCtx, cancel := context.WithCancel(ctx)
+			server.AppendHandlers(
+				ghttp.CombineHandlers(
+					ghttp.VerifyRequest("GET", "/feed.ics", ""),
+					func(w http.ResponseWriter, r *http.Request) {
+						// See previous test for explanation, this uses an error status code to check we don't lose it.
+						w.WriteHeader(400)
+						for i := 0; i < 50_000; i++ {
+							_, _ = w.Write([]byte("1"))
+						}
+						cancel()
+					},
+				))
+			feed, err := feed.Fetch(cancelCtx, fp.Must(url.Parse(server.URL()+"/feed.ics")))
+			Expect(err).ToNot(HaveOccurred())
+			Expect(feed).To(And(
+				HaveField("HttpStatus", 400),
+				HaveField("Body", ContainSubstring("error reading body: context canceled")),
+			))
+		})
 	})
 })
 
