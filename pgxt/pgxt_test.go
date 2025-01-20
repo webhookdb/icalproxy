@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/lithictech/go-aperitif/v2/logctx"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -47,8 +48,11 @@ var _ = Describe("pgxt", func() {
 
 	Describe("transactions", func() {
 		It("can commit the transaction on success", func() {
-			c1, _ := pgxt.ConnectToUrl(cfg.DatabaseUrl)
-			c2, _ := pgxt.ConnectToUrl(cfg.DatabaseUrl)
+			simpleExec := func(p *pgxpool.Config) {
+				p.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
+			}
+			c1, _ := pgxt.ConnectToUrl(cfg.DatabaseUrl, simpleExec)
+			c2, _ := pgxt.ConnectToUrl(cfg.DatabaseUrl, simpleExec)
 			defer c1.Close()
 			defer c2.Close()
 			c1.Exec(ctx, "DROP TABLE IF EXISTS transactiontest")
