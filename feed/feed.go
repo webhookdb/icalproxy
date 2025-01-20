@@ -58,6 +58,9 @@ func Fetch(ctx context.Context, u *url.URL) (*Feed, error) {
 		return nil, err
 	}
 	req.Header.Set("User-Agent", config.UserAgent)
+	// Some hosts (hostfully.com) require text/calendar listed specifically in the Accept header.
+	// Everyone else is fine with */*.
+	req.Header.Set("Accept", "text/calendar,*/*")
 	resp, err := httpClient.Do(req)
 	if isOriginBasedError(err) {
 		// These are timeouts, invalid hosts, etc. We should treat these like normal HTTP errors,

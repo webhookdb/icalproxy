@@ -61,6 +61,7 @@ var _ = Describe("feed", func() {
 			server.AppendHandlers(
 				ghttp.CombineHandlers(
 					ghttp.VerifyRequest("GET", "/feed.ics", ""),
+					ghttp.VerifyHeaderKV("Accept", "text/calendar,*/*"),
 					ghttp.RespondWith(200, "hi"),
 				),
 			)
