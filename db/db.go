@@ -102,10 +102,12 @@ func (db *DB) FetchFeedRow(ctx context.Context, uri *url.URL) (*FeedRow, error) 
 func (db *DB) FetchContentsAsFeed(ctx context.Context, uri *url.URL) (*feed.Feed, error) {
 	r := feed.Feed{}
 	var fetchHeaders json.RawMessage
+	// Having now row in the contents table is fine, since we may have committed an error feed
+	// as an initial version, which will not have contents.
 	const q = `SELECT
 	fetch_headers, fetch_status, checked_at, contents_md5, (CASE WHEN fetch_status >= 400 THEN fetch_error_body ELSE contents END)
 FROM icalproxy_feeds_v1
-JOIN icalproxy_feed_contents_v1 ON feed_id = icalproxy_feeds_v1.id
+LEFT JOIN icalproxy_feed_contents_v1 ON feed_id = icalproxy_feeds_v1.id
 WHERE url = $1`
 	err := db.conn.QueryRow(ctx, q, uri.String()).Scan(
 		&fetchHeaders, &r.HttpStatus, &r.FetchedAt, &r.MD5, &r.Body,

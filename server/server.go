@@ -179,7 +179,9 @@ func (h *endpointHandler) runAsProxy(ctx context.Context) error {
 	if err := h.extractUrl(); err != nil {
 		return err
 	}
-	resp, err := feed.Fetch(ctx, h.url)
+	timeoutCtx, cancel := context.WithTimeout(ctx, time.Duration(h.ag.Config.RequestMaxTimeout)*time.Second)
+	defer cancel()
+	resp, err := feed.Fetch(timeoutCtx, h.url)
 	if err != nil {
 		return err
 	}

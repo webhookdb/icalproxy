@@ -91,12 +91,14 @@ var _ = Describe("db", func() {
 			_, err := d.FetchContentsAsFeed(ctx, fp.Must(url.Parse("https://localhost/feed")))
 			Expect(err).To(MatchError(ContainSubstring("no rows in result set")))
 		})
-		It("errors if only the content row does not exist", func() {
+		It("returns an empty body if only the content row does not exist", func() {
 			_, err := ag.DB.Exec(ctx, `INSERT INTO icalproxy_feeds_v1(url, url_host_rev, checked_at, contents_md5, contents_last_modified, contents_size, fetch_status, fetch_headers)
 VALUES ('https://localhost/feed', 'TSOHLACOL', now(), 'abc123', now(), 5, 200, '{}')`)
 			Expect(err).ToNot(HaveOccurred())
-			_, err = d.FetchContentsAsFeed(ctx, fp.Must(url.Parse("https://localhost/feed")))
-			Expect(err).To(MatchError(ContainSubstring("no rows in result set")))
+			r, err := d.FetchContentsAsFeed(ctx, fp.Must(url.Parse("https://localhost/feed")))
+			Expect(err).ToNot(HaveOccurred())
+			Expect(r.Body).To(BeEmpty())
+			Expect(r.MD5).To(BeEquivalentTo("abc123"))
 		})
 	})
 	Describe("CommitFeed", func() {

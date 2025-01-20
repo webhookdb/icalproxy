@@ -250,6 +250,26 @@ var _ = Describe("server", func() {
 					HaveKeyWithValue("Ical-Proxy-Fallback", "true"),
 				))
 			})
+			It("uses a configured maximum timeout", func() {
+				ag.Config.RequestMaxTimeout = 0
+				origin.AppendHandlers(
+					ghttp.CombineHandlers(
+						ghttp.VerifyRequest("GET", "/feed.ics", ""),
+						func(w http.ResponseWriter, r *http.Request) {
+							time.Sleep(time.Second)
+						},
+					))
+				ag.DB.Close()
+				req := NewRequest("GET", serverRequestUrl, nil)
+				rr := Serve(e, req)
+				Expect(rr).To(HaveResponseCode(421))
+				Expect(rr.Body.String()).To(ContainSubstring("context deadline exceeded"))
+				Expect(internal.HeaderMap(rr.Header())).To(And(
+					HaveKeyWithValue("Content-Type", "text/plain"),
+					HaveKeyWithValue("Ical-Proxy-Origin-Error", "599"),
+					HaveKeyWithValue("Ical-Proxy-Fallback", "true"),
+				))
+			})
 		})
 		Describe("when the origin request times out", func() {
 			BeforeEach(func() {

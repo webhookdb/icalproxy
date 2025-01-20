@@ -41,10 +41,15 @@ type Config struct {
 	// a request is made synchronously. Because this is a slow, blocking request,
 	// it should have a fast timeout. If that request times out, the URL is still added
 	// to the database so it can be synced by the refresher, in case it's just a slow URL.
-	RequestTimeout  int    `env:"REQUEST_TIMEOUT, default=7"`
-	SentryDSN       string `env:"SENTRY_DSN"`
-	WebhookPageSize int    `env:"WEBHOOK_PAGE_SIZE, default=100"`
-	WebhookUrl      string `env:"WEBHOOK_URL"`
+	RequestTimeout int `env:"REQUEST_TIMEOUT, default=7"`
+	// When requesting an ICS url, and hitting the 'fallback' mode when the database is not available,
+	// use this timeout. Generally this should be a touch less than the load balancer timeout.
+	// We want to avoid load balancer timeouts since they indicate operations issues,
+	// whereas a timeout here is an origin issue.
+	RequestMaxTimeout int    `env:"REQUEST_MAX_TIMEOUT, default=25"`
+	SentryDSN         string `env:"SENTRY_DSN"`
+	WebhookPageSize   int    `env:"WEBHOOK_PAGE_SIZE, default=100"`
+	WebhookUrl        string `env:"WEBHOOK_URL"`
 }
 
 func (c Config) NewLogger(fields ...any) (*slog.Logger, error) {
