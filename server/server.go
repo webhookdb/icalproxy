@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	_ "embed"
 	"fmt"
 	"github.com/labstack/echo/v4"
 	"github.com/lithictech/go-aperitif/v2/api"
@@ -19,19 +20,24 @@ import (
 )
 
 func Register(_ context.Context, e *echo.Echo, ag *appglobals.AppGlobals) error {
+	e.GET("/favicon.ico", func(c echo.Context) error { return c.Blob(200, "image/x-icon", favicon) })
+
 	mw := []echo.MiddlewareFunc{FallbackMiddleware(ag)}
 	if ag.Config.ApiKey != "" {
-		apiKeyMw, err := ApiKeyMiddleware(ag.Config.ApiKey)
+		apiKeyMws, err := ApiKeyMiddlewares(ag.Config.ApiKey)
 		if err != nil {
 			return err
 		}
-		mw = append(mw, apiKeyMw)
+		mw = append(mw, apiKeyMws...)
 	}
 	e.HEAD("/", handle(ag), mw...)
 	e.GET("/", handle(ag), mw...)
 	e.GET("/stats", handleStats(ag), mw...)
 	return nil
 }
+
+//go:embed favicon.ico
+var favicon []byte
 
 type endpointHandler struct {
 	ag  *appglobals.AppGlobals

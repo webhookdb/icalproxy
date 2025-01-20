@@ -30,8 +30,12 @@ General purpose configuration:
   This application self-manages the database, you don't need to worry about migrations.
 - `DATABASE_CONNECTION_POOL_URL=`: If provided, use this as the database connection string.
   icalproxy is compatible with transaction-mode connection pooling.
-- `API_KEY=<value>`: Enable auth for the API. If set,
-  all `/` requests require an `Authorization: Apikey <value>` header.
+- `API_KEY=<value>`: Enable auth for the API. If set, one of two auth mechanics are required for protected endpoints:
+  - `Authorization: Apikey <value>` header.
+  - `Authorization: Basic :<value>` header. That is, basic auth where the password is the api key value,
+    and the username is empty.
+- `WEBHOOK_URL=`: The URL to POST to whenever a feed changes. See "Webhooks" below.
+- `WEBHOOK_PAGE_SIZE=`: Number of URLs in each webhook request.
 - `SENTRY_DSN=`: Set if using Sentry.
 
 Feed refresh configuration:
@@ -55,7 +59,28 @@ Configuration for tuning and development:
 - `LOG_FORMAT=`: One of `json`, `text`, or empty. If empty and in a TTY, use `text`, with color if possible.
   If empty and not in a TTY (so, running a real server), use `json`.
 - `LOG_LEVEL=info`: Level to log at.
+- `REQUEST_TIMEOUT=7`: When requesting an ICS url, and it is not in the database or has an expired TTL,
+  a request is made synchronously. Because this is a slow, blocking request,
+  it should have a fast timeout. If that request times out, the URL is still added
+  to the database so it can be synced by the refresher, in case it's just a slow URL.
+- `REQUEST_MAX_TIMEOUT=25`: When requesting an ICS url, and hitting the 'fallback' mode when the database is not available,
+  use this timeout. Generally this should be a touch less than the load balancer timeout.
+  We want to avoid load balancer timeouts since they indicate operations issues,
+  whereas a timeout here is an origin issue.
 - `REFRESH_PAGE_SIZE=100`: Number of feeds that are refreshed at a time before changes are committed to the database.
-  Smaller pages will see more responsive updates, while larger pages may see better performance.
+  Smaller pages will see more responsive updates, while larger pages may see better performance but more memory use.
 - `REFRESH_TIMEOUT=30`: Seconds to wait for an origin server before timing out an ICalendar feed request.
   Only used for the refresh routine.
+
+## Webhooks
+
+If `WEBHOOK_URL` is set, whenever a row is modified, it will be marked for an update sent to `WEBHOOK_URL`.
+
+- The body looks like `{"urls":[]}`
+- The request is a `POST`.
+- The timeout is 10 seconds.
+- If the server replies back with a 2xx response, the rows are marked as notified about.
+- Your server should request the updated URLs from the server;
+  the webhook includes only the URLs, and no information about the contents.
+- If `API_KEY` is set in icalproxy, then the webhook will include an `Authorization: Apikey <value>` header,
+  which can be used for authentication on your server.

@@ -74,6 +74,19 @@ var _ = Describe("server", func() {
 			Expect(rr).To(HaveResponseCode(200))
 			Expect(rr.Body.String()).To(Equal("VEVENT"))
 		})
+		It("succeeds with basic auth with the api key as the password", func() {
+			origin.AppendHandlers(
+				ghttp.CombineHandlers(
+					ghttp.VerifyRequest("GET", "/feed.ics", ""),
+					ghttp.RespondWith(200, "VEVENT"),
+				),
+			)
+			req := NewRequest("GET", serverRequestUrl, nil)
+			req.SetBasicAuth("", "sekret")
+			rr := Serve(e, req)
+			Expect(rr).To(HaveResponseCode(200))
+			Expect(rr.Body.String()).To(Equal("VEVENT"))
+		})
 		It("errors with a missing auth header", func() {
 			req := NewRequest("GET", serverRequestUrl, nil)
 			rr := Serve(e, req)
@@ -327,6 +340,18 @@ var _ = Describe("server", func() {
 				HaveKeyWithValue("pending_refresh_count", BeEquivalentTo(0)),
 				HaveKeyWithValue("pending_webhooks", BeEquivalentTo(0)),
 			))
+		})
+	})
+	Describe("GET /favicon.ico", func() {
+		BeforeEach(func() {
+			Expect(server.Register(ctx, e, ag)).To(Succeed())
+		})
+
+		It("returns the image", func() {
+			req := NewRequest("GET", "/favicon.ico", nil)
+			rr := Serve(e, req)
+			Expect(rr).To(HaveResponseCode(200))
+			Expect(rr.Body).To(MatchLen(BeNumerically(">", 1000)))
 		})
 	})
 })
