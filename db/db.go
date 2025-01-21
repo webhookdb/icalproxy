@@ -84,12 +84,13 @@ func (db *DB) Reset(ctx context.Context) error {
 type FeedRow struct {
 	ContentsMD5          types.MD5Hash
 	ContentsLastModified time.Time
+	FetchHeaders         feed.HeaderMap
 }
 
 func (db *DB) FetchFeedRow(ctx context.Context, uri *url.URL) (*FeedRow, error) {
 	r := FeedRow{}
-	const q = `SELECT contents_md5, contents_last_modified FROM icalproxy_feeds_v1 WHERE url = $1`
-	err := db.conn.QueryRow(ctx, q, uri.String()).Scan(&r.ContentsMD5, &r.ContentsLastModified)
+	const q = `SELECT contents_md5, contents_last_modified, fetch_headers FROM icalproxy_feeds_v1 WHERE url = $1`
+	err := db.conn.QueryRow(ctx, q, uri.String()).Scan(&r.ContentsMD5, &r.ContentsLastModified, &r.FetchHeaders)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil

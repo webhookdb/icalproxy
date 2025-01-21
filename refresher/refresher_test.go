@@ -269,6 +269,34 @@ var _ = Describe("refresher", func() {
 				HaveField("WebhookPending", false),
 			))
 		})
+		It("commits rows where Fetch returns ErrNotModified", func() {
+			origin.AppendHandlers(
+				ghttp.CombineHandlers(
+					ghttp.VerifyRequest("GET", "/expired-ttl.ics", ""),
+					ghttp.RespondWith(304, ""),
+				),
+			)
+			Expect(d.CommitFeed(ctx,
+				feed.New(
+					fp.Must(url.Parse(origin.URL()+"/expired-ttl.ics")),
+					make(map[string]string),
+					200,
+					[]byte("SAMEBODY"),
+					time.Now().Add(-5*time.Hour),
+				), &db.CommitFeedOptions{WebhookPending: false})).To(Succeed())
+
+			Expect(refresher.New(ag).Run(ctx)).To(Succeed())
+			row := fp.Must(pgx.CollectExactlyOneRow[FeedRow](
+				fp.Must(ag.DB.Query(ctx, `SELECT * FROM icalproxy_feeds_v1 WHERE url = $1`, origin.URL()+"/expired-ttl.ics")),
+				pgx.RowToStructByName[FeedRow],
+			))
+			Expect(row).To(And(
+				HaveField("ContentsMD5", MustMD5("SAMEBODY")),
+				HaveField("CheckedAt", BeTemporally("~", time.Now(), time.Minute)),
+				// Make sure this doesn't get set back to true when there is no change
+				HaveField("WebhookPending", false),
+			))
+		})
 	})
 	Describe("SelectRowsToProcess", func() {
 		It("selects rows that have not been checked since the TTL for their host", func() {

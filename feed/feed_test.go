@@ -63,9 +63,8 @@ var _ = Describe("feed", func() {
 					ghttp.VerifyRequest("GET", "/feed.ics", ""),
 					ghttp.VerifyHeaderKV("Accept", "text/calendar,*/*"),
 					ghttp.RespondWith(200, "hi"),
-				),
-			)
-			feed, err := feed.Fetch(ctx, fp.Must(url.Parse(server.URL()+"/feed.ics")))
+				))
+			feed, err := feed.Fetch(ctx, fp.Must(url.Parse(server.URL()+"/feed.ics")), nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(feed).To(And(
 				HaveField("HttpStatus", 200),
@@ -80,7 +79,7 @@ var _ = Describe("feed", func() {
 					ghttp.RespondWith(403, "hi"),
 				),
 			)
-			feed, err := feed.Fetch(ctx, fp.Must(url.Parse(server.URL()+"/feed.ics")))
+			feed, err := feed.Fetch(ctx, fp.Must(url.Parse(server.URL()+"/feed.ics")), nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(feed).To(And(
 				HaveField("HttpStatus", 403),
@@ -99,7 +98,7 @@ var _ = Describe("feed", func() {
 			)
 			timeoutCtx, cancel := context.WithTimeout(ctx, 0)
 			defer cancel()
-			feed, err := feed.Fetch(timeoutCtx, fp.Must(url.Parse(server.URL()+"/feed.ics")))
+			feed, err := feed.Fetch(timeoutCtx, fp.Must(url.Parse(server.URL()+"/feed.ics")), nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(feed).To(And(
 				HaveField("HttpStatus", 599),
@@ -109,7 +108,7 @@ var _ = Describe("feed", func() {
 		It("returns the feed in the case of a certificate error", func() {
 			certErr := x509.SystemRootsError{Err: errors.New("bad cert")}
 			Expect(feed.WithHttpClient(&erroringHttpClient{Err: certErr}, func() error {
-				feed, err := feed.Fetch(ctx, fp.Must(url.Parse(server.URL()+"/feed.ics")))
+				feed, err := feed.Fetch(ctx, fp.Must(url.Parse(server.URL()+"/feed.ics")), nil)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(feed).To(And(
 					HaveField("HttpStatus", 599),
@@ -120,7 +119,7 @@ var _ = Describe("feed", func() {
 
 			wrappedErr := fmt.Errorf("wrapped: %w", certErr)
 			Expect(feed.WithHttpClient(&erroringHttpClient{Err: wrappedErr}, func() error {
-				feed, err := feed.Fetch(ctx, fp.Must(url.Parse(server.URL()+"/feed.ics")))
+				feed, err := feed.Fetch(ctx, fp.Must(url.Parse(server.URL()+"/feed.ics")), nil)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(feed).To(And(
 					HaveField("HttpStatus", 599),
@@ -146,7 +145,7 @@ var _ = Describe("feed", func() {
 						cancel()
 					},
 				))
-			feed, err := feed.Fetch(cancelCtx, fp.Must(url.Parse(server.URL()+"/feed.ics")))
+			feed, err := feed.Fetch(cancelCtx, fp.Must(url.Parse(server.URL()+"/feed.ics")), nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(feed).To(And(
 				HaveField("HttpStatus", 599),
@@ -167,12 +166,111 @@ var _ = Describe("feed", func() {
 						cancel()
 					},
 				))
-			feed, err := feed.Fetch(cancelCtx, fp.Must(url.Parse(server.URL()+"/feed.ics")))
+			feed, err := feed.Fetch(cancelCtx, fp.Must(url.Parse(server.URL()+"/feed.ics")), nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(feed).To(And(
 				HaveField("HttpStatus", 400),
 				HaveField("Body", ContainSubstring("error reading body: context canceled")),
 			))
+		})
+		Describe("with previous fetch http headers", func() {
+			// http.Format ignores TZ so make sure we force UTC
+			nowFmt := time.Now().UTC().Format(http.TimeFormat)
+
+			It("passes If-None-Match if an Etag is present", func() {
+				server.AppendHandlers(
+					ghttp.CombineHandlers(
+						ghttp.VerifyRequest("GET", "/feed.ics", ""),
+						ghttp.VerifyHeaderKV("If-None-Match", `"abcd"`),
+						ghttp.RespondWith(200, "hi"),
+					))
+				feed, err := feed.Fetch(ctx, fp.Must(url.Parse(server.URL()+"/feed.ics")), map[string]string{"Etag": `"abcd"`})
+				Expect(err).ToNot(HaveOccurred())
+				Expect(feed).To(HaveField("HttpStatus", 200))
+			})
+			It("passes If-Modified-Since if a Last-Modified is present", func() {
+				server.AppendHandlers(
+					ghttp.CombineHandlers(
+						ghttp.VerifyRequest("GET", "/feed.ics", ""),
+						ghttp.VerifyHeaderKV("If-Modified-Since", `Tue, 22 Feb 2022 22:00:00 GMT`),
+						ghttp.RespondWith(200, "hi"),
+					))
+				feed, err := feed.Fetch(ctx, fp.Must(url.Parse(server.URL()+"/feed.ics")), map[string]string{"Last-Modified": `Tue, 22 Feb 2022 22:00:00 GMT`})
+				Expect(err).ToNot(HaveOccurred())
+				Expect(feed).To(HaveField("HttpStatus", 200))
+			})
+			It("returns a NotModified error and the feed on 304", func() {
+				server.AppendHandlers(
+					ghttp.CombineHandlers(
+						ghttp.VerifyRequest("GET", "/feed.ics", ""),
+						ghttp.RespondWith(304, ""),
+					))
+				fd, err := feed.Fetch(ctx, fp.Must(url.Parse(server.URL()+"/feed.ics")), map[string]string{"Etag": `xyz`})
+				Expect(err).To(BeIdenticalTo(feed.ErrNotModified))
+				Expect(fd).To(HaveField("FetchedAt", BeTemporally("~", time.Now(), time.Minute)))
+			})
+			Describe("with a Date and Cache-Control header", func() {
+				It("makes the request if more than max-age has elapsed since the last request date", func() {
+					server.AppendHandlers(
+						ghttp.CombineHandlers(
+							ghttp.VerifyRequest("GET", "/feed.ics", ""),
+							ghttp.RespondWith(200, "hi"),
+						))
+					feed, err := feed.Fetch(ctx, fp.Must(url.Parse(server.URL()+"/feed.ics")), map[string]string{
+						"Date":          nowFmt,
+						"Cache-Control": `max-age=0`,
+					})
+					Expect(err).ToNot(HaveOccurred())
+					Expect(feed).To(HaveField("HttpStatus", 200))
+				})
+				It("makes the request if the Date header is invalid", func() {
+					server.AppendHandlers(
+						ghttp.CombineHandlers(
+							ghttp.VerifyRequest("GET", "/feed.ics", ""),
+							ghttp.RespondWith(200, "hi"),
+						))
+					feed, err := feed.Fetch(ctx, fp.Must(url.Parse(server.URL()+"/feed.ics")), map[string]string{
+						"Date":          "not valid",
+						"Cache-Control": "max-age=1000",
+					})
+					Expect(err).ToNot(HaveOccurred())
+					Expect(feed).To(HaveField("HttpStatus", 200))
+				})
+				It("makes the request if the Cache-Control header is invalid", func() {
+					server.AppendHandlers(
+						ghttp.CombineHandlers(
+							ghttp.VerifyRequest("GET", "/feed.ics", ""),
+							ghttp.RespondWith(200, "hi"),
+						))
+					feed, err := feed.Fetch(ctx, fp.Must(url.Parse(server.URL()+"/feed.ics")), map[string]string{
+						"Date":          nowFmt,
+						"Cache-Control": "not sure what is up here",
+					})
+					Expect(err).ToNot(HaveOccurred())
+					Expect(feed).To(HaveField("HttpStatus", 200))
+				})
+				It("returns NotModified if the last request date plus max-age is after now", func() {
+					fd, err := feed.Fetch(ctx, fp.Must(url.Parse(server.URL()+"/feed.ics")), map[string]string{
+						"Date":          nowFmt,
+						"Cache-Control": `max-age=100`,
+					})
+					Expect(err).To(BeIdenticalTo(feed.ErrNotModified))
+					Expect(fd).To(HaveField("FetchedAt", BeTemporally("~", time.Now(), time.Minute)))
+				})
+				It("uses a predefined max-age to avoid servers that give bad values", func() {
+					server.AppendHandlers(
+						ghttp.CombineHandlers(
+							ghttp.VerifyRequest("GET", "/feed.ics", ""),
+							ghttp.RespondWith(200, "hi"),
+						))
+					feed, err := feed.Fetch(ctx, fp.Must(url.Parse(server.URL()+"/feed.ics")), map[string]string{
+						"Date":          time.Now().Add(-25 * time.Hour).UTC().Format(http.TimeFormat),
+						"Cache-Control": `max-age=9999999999999`,
+					})
+					Expect(err).ToNot(HaveOccurred())
+					Expect(feed).To(HaveField("HttpStatus", 200))
+				})
+			})
 		})
 	})
 })
@@ -181,6 +279,6 @@ type erroringHttpClient struct {
 	Err error
 }
 
-func (e *erroringHttpClient) Do(req *http.Request) (*http.Response, error) {
+func (e *erroringHttpClient) Do(*http.Request) (*http.Response, error) {
 	return nil, e.Err
 }

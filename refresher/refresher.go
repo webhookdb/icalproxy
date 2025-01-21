@@ -2,6 +2,7 @@ package refresher
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"github.com/jackc/pgx/v5"
 	"github.com/lithictech/go-aperitif/v2/logctx"
@@ -45,7 +46,7 @@ func (r *Refresher) Run(ctx context.Context) error {
 
 func (r *Refresher) buildSelectQuery(now time.Time) string {
 	whereSql := r.buildSelectQueryWhere(now)
-	q := fmt.Sprintf(`SELECT url, contents_md5, fetch_status
+	q := fmt.Sprintf(`SELECT url, contents_md5, fetch_status, fetch_headers
 FROM icalproxy_feeds_v1
 WHERE %s
 LIMIT %d
@@ -83,7 +84,7 @@ func (r *Refresher) SelectRowsToProcess(ctx context.Context, tx pgx.Tx) ([]RowTo
 	}
 	return pgx.CollectRows[RowToProcess](rows, func(r pgx.CollectableRow) (RowToProcess, error) {
 		rtp := RowToProcess{}
-		return rtp, r.Scan(&rtp.Url, &rtp.MD5, &rtp.FetchStatus)
+		return rtp, r.Scan(&rtp.Url, &rtp.MD5, &rtp.FetchStatus, &rtp.FetchHeaders)
 	})
 }
 
@@ -141,9 +142,10 @@ func (r *Refresher) processChunk(ctx context.Context) (int, error) {
 }
 
 type RowToProcess struct {
-	Url         string
-	MD5         types.MD5Hash
-	FetchStatus int
+	Url          string
+	MD5          types.MD5Hash
+	FetchStatus  int
+	FetchHeaders feed.HeaderMap
 }
 
 func (r *Refresher) processUrl(ctx context.Context, tx pgx.Tx, txMux *sync.Mutex, rtp RowToProcess) error {
@@ -155,14 +157,18 @@ func (r *Refresher) processUrl(ctx context.Context, tx pgx.Tx, txMux *sync.Mutex
 	start := time.Now()
 	reqctx, cancel := context.WithTimeout(ctx, time.Duration(r.ag.Config.RefreshTimeout)*time.Second)
 	defer cancel()
-	fd, err := feed.Fetch(reqctx, uri)
-	if err != nil {
+	fd, err := feed.Fetch(reqctx, uri, rtp.FetchHeaders)
+	notModified := errors.Is(err, feed.ErrNotModified)
+	if err != nil && !notModified {
 		return err
 	}
 	txMux.Lock()
 	defer txMux.Unlock()
 	feedUnchanged := false
-	if fd.MD5 == rtp.MD5 {
+	if notModified {
+		// 304 from server, or request avoided due to Cache-Control
+		feedUnchanged = true
+	} else if fd.MD5 == rtp.MD5 {
 		// Body has not changed
 		feedUnchanged = true
 	} else if fd.HttpStatus >= 400 && fd.HttpStatus == rtp.FetchStatus {

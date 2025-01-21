@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	_ "embed"
+	"errors"
 	"fmt"
 	"github.com/labstack/echo/v4"
 	"github.com/lithictech/go-aperitif/v2/api"
@@ -57,6 +58,7 @@ func handle(ag *appglobals.AppGlobals) echo.HandlerFunc {
 		if err := eh.extractUrl(); err != nil {
 			return err
 		}
+		ctx = logctx.AddTo(ctx, "feed_url", eh.url.String())
 		// Load the row from the database, if there is one.
 		// If there isn't, 'row' will be nil.
 		if err := eh.loadRow(ctx); err != nil {
@@ -143,17 +145,38 @@ func (h *endpointHandler) serveIfTtl(ctx context.Context) (bool, error) {
 }
 
 func (h *endpointHandler) refetchAndCommit(ctx context.Context) (*feed.Feed, error) {
+	// This codepath should be relatively rare; it means the refresher isn't keeping feeds up to date
+	// as soon as their TTL expires.
+	logctx.Logger(ctx).Info("refetching feed")
 	timeoutctx, cancel := context.WithTimeout(ctx, time.Duration(h.ag.Config.RequestTimeout)*time.Second)
 	defer cancel()
-	fd, err := feed.Fetch(timeoutctx, h.url)
-	if err != nil {
-		return nil, err
+	var previousHeaders feed.HeaderMap
+	if h.row != nil {
+		previousHeaders = h.row.FetchHeaders
 	}
+	fd, err := feed.Fetch(timeoutctx, h.url, previousHeaders)
+	if err != nil && !errors.Is(err, feed.ErrNotModified) {
+		return nil, err
+	} else if errors.Is(err, feed.ErrNotModified) {
+		// If origin told us there are no changes, we need to commit the feed to reset its TTL,
+		// and then serve whatever is in cache.
+		if err := db.New(h.ag.DB).CommitUnchanged(ctx, fd); err != nil {
+			logctx.Logger(ctx).With("error", err).ErrorContext(ctx, "commit_unchanged_feed_error")
+		}
+		fd, err := db.New(h.ag.DB).FetchContentsAsFeed(ctx, h.url)
+		if err != nil {
+			return nil, ErrFallback
+		}
+		return fd, nil
+	}
+
 	// If the commit is coming through the server, we don't need to send a webhook.
+	// Note that we don't compare the feed to the database version like refresher does and CommitUnchanged;
+	// this code path should be relatively rare, since refresher should take care of keeping feeds up to date.
 	if err := db.New(h.ag.DB).CommitFeed(ctx, fd, nil); err != nil {
 		logctx.Logger(ctx).With("error", err).ErrorContext(ctx, "commit_feed_error")
 	}
-	return fd, err
+	return fd, nil
 }
 
 func (h *endpointHandler) serveResponse(_ context.Context, fd *feed.Feed) error {
@@ -187,7 +210,7 @@ func (h *endpointHandler) runAsProxy(ctx context.Context) error {
 	}
 	timeoutCtx, cancel := context.WithTimeout(ctx, time.Duration(h.ag.Config.RequestMaxTimeout)*time.Second)
 	defer cancel()
-	resp, err := feed.Fetch(timeoutCtx, h.url)
+	resp, err := feed.Fetch(timeoutCtx, h.url, nil)
 	if err != nil {
 		return err
 	}

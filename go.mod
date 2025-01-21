@@ -14,6 +14,7 @@ require (
 	github.com/lithictech/go-aperitif/v2 v2.1.2
 	github.com/onsi/ginkgo/v2 v2.19.1
 	github.com/onsi/gomega v1.34.1
+	github.com/pquerna/cachecontrol v0.2.0
 	github.com/rgalanakis/golangal v1.2.0
 	github.com/sethvargo/go-envconfig v1.1.0
 	github.com/urfave/cli/v2 v2.27.5

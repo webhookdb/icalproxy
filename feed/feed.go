@@ -5,6 +5,7 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"errors"
+	"github.com/pquerna/cachecontrol/cacheobject"
 	"github.com/webhookdb/icalproxy/config"
 	"github.com/webhookdb/icalproxy/internal"
 	"github.com/webhookdb/icalproxy/types"
@@ -21,6 +22,8 @@ const CalendarContentType = "text/calendar"
 // This is a constant, not configurable, since we don't want it to change
 // and isn't really at the discretion of the operator.
 const DefaultTTL = types.TTL(2 * time.Hour)
+
+var ErrNotModified = errors.New("feed has not been modified (cached, 304, etc)")
 
 // TTLFor returns the TTL for the given url.URL. It uses the hostname
 // to search through config.Config IcalTTLMap.
@@ -50,8 +53,21 @@ type Feed struct {
 	FetchedAt   time.Time
 }
 
-func Fetch(ctx context.Context, u *url.URL) (*Feed, error) {
+func (f *Feed) SetBody(body []byte) {
+	f.Body = body
+	f.MD5 = internal.MD5HashHex(body)
+}
+
+func Fetch(ctx context.Context, u *url.URL, previousHeaders HeaderMap) (*Feed, error) {
 	now := time.Now().Truncate(time.Second)
+	fd := &Feed{
+		Url:         u,
+		HttpHeaders: make(map[string]string),
+		FetchedAt:   now,
+	}
+	if previousHeaders != nil && feedStillCached(previousHeaders, now) {
+		return fd, ErrNotModified
+	}
 	req, err := http.NewRequestWithContext(ctx, "GET", u.String(), nil)
 	if err != nil {
 		return nil, err
@@ -60,42 +76,65 @@ func Fetch(ctx context.Context, u *url.URL) (*Feed, error) {
 	// Some hosts (hostfully.com) require text/calendar listed specifically in the Accept header.
 	// Everyone else is fine with */*.
 	req.Header.Set("Accept", "text/calendar,*/*")
+	// Pass conditional get headers if we have them
+	if previousHeaders != nil {
+		if etag, ok := previousHeaders["Etag"]; ok {
+			req.Header.Set("If-None-Match", etag)
+		}
+		if lastMod, ok := previousHeaders["Last-Modified"]; ok {
+			req.Header.Set("If-Modified-Since", lastMod)
+		}
+	}
 	resp, err := httpClient.Do(req)
 	if isOriginBasedError(err) {
 		// These are timeouts, invalid hosts, etc. We should treat these like normal HTTP errors,
 		// but with a special 599 status code (0 is dangerous because most people check status >= 400 for errors).
-		body := []byte(err.Error())
-		return &Feed{
-			Url:         u,
-			HttpHeaders: make(map[string]string),
-			HttpStatus:  599,
-			Body:        body,
-			MD5:         internal.MD5HashHex(body),
-			FetchedAt:   now,
-		}, nil
+		fd.HttpStatus = 599
+		fd.SetBody([]byte(err.Error()))
+		return fd, nil
 	} else if err != nil {
 		return nil, err
 	}
+	if resp.StatusCode == http.StatusNotModified {
+		return fd, ErrNotModified
+	}
+	fd.HttpStatus = resp.StatusCode
+	fd.HttpHeaders = HeadersToMap(resp.Header)
 	b, err := internal.ReadAllWithContext(ctx, resp.Body)
 	if err != nil {
 		// If reading the body fails, we need to record an error, even if the HTTP response was a success.
-		statusCode := resp.StatusCode
-		if statusCode < 400 {
-			statusCode = 599
+		if fd.HttpStatus < 400 {
+			fd.HttpStatus = 599
 		}
-		body := []byte("error reading body: " + err.Error())
-		return &Feed{
-			Url:         u,
-			HttpHeaders: internal.HeaderMap(resp.Header),
-			HttpStatus:  statusCode,
-			Body:        body,
-			MD5:         internal.MD5HashHex(body),
-			FetchedAt:   now,
-		}, nil
+		fd.SetBody([]byte("error reading body: " + err.Error()))
+		return fd, nil
 	}
-	f := New(u, internal.HeaderMap(resp.Header), resp.StatusCode, b, now)
-	return f, nil
+	fd.SetBody(b)
+	return fd, nil
 }
+
+func feedStillCached(h HeaderMap, now time.Time) bool {
+	date, err := http.ParseTime(h["Date"])
+	if err != nil {
+		return false
+	}
+	cc, err := cacheobject.ParseResponseCacheControl(h["Cache-Control"])
+	if err != nil || cc == nil {
+		return false
+	}
+	maxAge := cc.MaxAge
+	if maxAge > maximumMaxAge {
+		maxAge = maximumMaxAge
+	}
+	cacheUntil := date.Add(time.Duration(maxAge) * time.Second)
+	return now.Before(cacheUntil)
+}
+
+// When checking Cache-Control max-age, use this as upper bound on max-age.
+// There are feeds, like sports teach schedules, that may give
+// immutable values (20 years, etc) that clearly are incorrect.
+// Fetching new data once a day as a worst-case is not that bad.
+var maximumMaxAge = cacheobject.DeltaSeconds(int32((time.Hour * 24).Seconds()))
 
 func isOriginBasedError(err error) bool {
 	if err == nil {
@@ -122,6 +161,16 @@ func New(url *url.URL, headers map[string]string, httpStatus int, body []byte, f
 	hash := md5.Sum(body)
 	f.MD5 = types.MD5Hash(hex.EncodeToString(hash[:]))
 	return f
+}
+
+type HeaderMap map[string]string
+
+func HeadersToMap(h http.Header) HeaderMap {
+	r := make(HeaderMap, len(h))
+	for k, v := range h {
+		r[k] = v[0]
+	}
+	return r
 }
 
 type IHttpClient interface {

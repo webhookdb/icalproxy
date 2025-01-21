@@ -17,7 +17,6 @@ import (
 	"github.com/webhookdb/icalproxy/feed"
 	"github.com/webhookdb/icalproxy/fp"
 	"github.com/webhookdb/icalproxy/icalproxytest"
-	"github.com/webhookdb/icalproxy/internal"
 	"github.com/webhookdb/icalproxy/server"
 	"github.com/webhookdb/icalproxy/types"
 	"net/http"
@@ -126,7 +125,7 @@ var _ = Describe("server", func() {
 			rr := Serve(e, req)
 			Expect(rr).To(HaveResponseCode(200))
 			Expect(rr.Body.String()).To(Equal("VEVENT"))
-			Expect(internal.HeaderMap(rr.Header())).To(And(
+			Expect(feed.HeadersToMap(rr.Header())).To(And(
 				HaveKeyWithValue("Content-Type", "text/calendar"),
 				HaveKeyWithValue("Content-Length", "6"),
 				HaveKey("Last-Modified"),
@@ -147,7 +146,7 @@ var _ = Describe("server", func() {
 			rr := Serve(e, req)
 			Expect(rr).To(HaveResponseCode(421))
 			Expect(rr.Body.String()).To(Equal("nope"))
-			Expect(internal.HeaderMap(rr.Header())).To(And(
+			Expect(feed.HeadersToMap(rr.Header())).To(And(
 				HaveKeyWithValue("Content-Type", "application/custom"),
 				HaveKeyWithValue("Ical-Proxy-Origin-Error", "403"),
 			))
@@ -238,10 +237,29 @@ var _ = Describe("server", func() {
 				rr := Serve(e, req)
 				Expect(rr).To(HaveResponseCode(421))
 				Expect(rr.Body.String()).To(Equal("nope"))
-				Expect(internal.HeaderMap(rr.Header())).To(And(
+				Expect(feed.HeadersToMap(rr.Header())).To(And(
 					HaveKeyWithValue("Content-Type", "application/custom"),
 					HaveKeyWithValue("Ical-Proxy-Origin-Error", "403"),
 				))
+			})
+			It("returns the cached feed if there was an expired TTL but the origin returned NotModified on fetch", func() {
+				Expect(db.New(ag.DB).CommitFeed(ctx, feed.New(
+					originFeedUri,
+					make(map[string]string),
+					200,
+					[]byte("VERSION1"),
+					time.Now().Add(-5*time.Hour),
+				), nil)).To(Succeed())
+				origin.AppendHandlers(
+					ghttp.CombineHandlers(
+						ghttp.VerifyRequest("GET", "/feed.ics", ""),
+						ghttp.RespondWith(304, ""),
+					),
+				)
+				req := NewRequest("GET", serverRequestUrl, nil)
+				rr := Serve(e, req)
+				Expect(rr).To(HaveResponseCode(200))
+				Expect(rr.Body.String()).To(Equal("VERSION1"))
 			})
 		})
 		Describe("when the database is down", func() {
@@ -257,7 +275,7 @@ var _ = Describe("server", func() {
 				rr := Serve(e, req)
 				Expect(rr).To(HaveResponseCode(421))
 				Expect(rr.Body.String()).To(Equal("nope"))
-				Expect(internal.HeaderMap(rr.Header())).To(And(
+				Expect(feed.HeadersToMap(rr.Header())).To(And(
 					HaveKeyWithValue("Content-Type", "application/custom"),
 					HaveKeyWithValue("Ical-Proxy-Origin-Error", "403"),
 					HaveKeyWithValue("Ical-Proxy-Fallback", "true"),
@@ -277,7 +295,7 @@ var _ = Describe("server", func() {
 				rr := Serve(e, req)
 				Expect(rr).To(HaveResponseCode(421))
 				Expect(rr.Body.String()).To(ContainSubstring("context deadline exceeded"))
-				Expect(internal.HeaderMap(rr.Header())).To(And(
+				Expect(feed.HeadersToMap(rr.Header())).To(And(
 					HaveKeyWithValue("Content-Type", "text/plain"),
 					HaveKeyWithValue("Ical-Proxy-Origin-Error", "599"),
 					HaveKeyWithValue("Ical-Proxy-Fallback", "true"),
@@ -301,7 +319,7 @@ var _ = Describe("server", func() {
 				rr := Serve(e, req)
 				Expect(rr).To(HaveResponseCode(421))
 				Expect(rr.Body.String()).To(HaveSuffix(`/feed.ics": context deadline exceeded`))
-				Expect(internal.HeaderMap(rr.Header())).To(And(
+				Expect(feed.HeadersToMap(rr.Header())).To(And(
 					HaveKeyWithValue("Content-Type", "text/plain"),
 					HaveKeyWithValue("Ical-Proxy-Origin-Error", "599"),
 				))
