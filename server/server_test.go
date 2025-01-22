@@ -126,10 +126,10 @@ var _ = Describe("server", func() {
 			Expect(rr).To(HaveResponseCode(200))
 			Expect(rr.Body.String()).To(Equal("VEVENT"))
 			Expect(feed.HeadersToMap(rr.Header())).To(And(
-				HaveKeyWithValue("Content-Type", "text/calendar"),
+				HaveKeyWithValue("Content-Type", "text/calendar; charset=utf-8"),
 				HaveKeyWithValue("Content-Length", "6"),
 				HaveKey("Last-Modified"),
-				HaveKeyWithValue("Etag", "a2ec0c77b7bea23455185bcc75535bf7"),
+				HaveKeyWithValue("Etag", "v1a2ec0c77b7bea23455185bcc75535bf7"),
 			))
 
 			row := fp.Must(db.New(ag.DB).FetchFeedRow(ctx, originFeedUri))

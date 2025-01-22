@@ -20,6 +20,13 @@ import (
 	"time"
 )
 
+// EtagBusterPrefix should be modified when existing Etag headers should be invalidated.
+// This can happen for example when some related header has changed which would change
+// how the response body would otherwise be treated. For example, this value was added
+// when 'Content-Type' changed from 'text/calendar' to 'text/calendar; utf-8'.
+// Be careful changing this, since it invalidates all existing cached responses.
+const EtagBusterPrefix = "v1"
+
 func Register(_ context.Context, e *echo.Echo, ag *appglobals.AppGlobals) error {
 	e.GET("/favicon.ico", func(c echo.Context) error { return c.Blob(200, "image/x-icon", favicon) })
 
@@ -195,7 +202,7 @@ func (h *endpointHandler) serveResponse(_ context.Context, fd *feed.Feed) error 
 	}
 	h.c.Response().Header().Set("Content-Type", feed.CalendarContentType)
 	h.c.Response().Header().Set("Content-Length", strconv.Itoa(len(fd.Body)))
-	h.c.Response().Header().Set("Etag", string(fd.MD5))
+	h.c.Response().Header().Set("Etag", EtagBusterPrefix+string(fd.MD5))
 	h.c.Response().Header().Set("Last-Modified", types.FormatHttpTime(fd.FetchedAt))
 	if h.c.Request().Method == http.MethodHead {
 		h.c.Response().WriteHeader(200)

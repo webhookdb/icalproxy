@@ -15,7 +15,7 @@ import (
 	"time"
 )
 
-const CalendarContentType = "text/calendar"
+const CalendarContentType = "text/calendar; charset=utf-8"
 
 // DefaultTTL is a general purpose slow TTL we use as a fallback
 // for calendars that don't match more specific, faster TTLs.
