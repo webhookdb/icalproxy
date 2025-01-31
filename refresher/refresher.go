@@ -182,7 +182,7 @@ func (r *Refresher) processUrl(ctx context.Context, tx pgx.Tx, txMux *sync.Mutex
 		}
 		logctx.Logger(ctx).DebugContext(ctx, "feed_unchanged")
 	} else {
-		if err := db.New(tx).CommitFeed(ctx, fd, &db.CommitFeedOptions{WebhookPending: r.ag.Config.WebhookUrl != ""}); err != nil {
+		if err := db.New(tx).CommitFeed(ctx, r.ag.FeedStorage, fd, &db.CommitFeedOptions{WebhookPending: r.ag.Config.WebhookUrl != ""}); err != nil {
 			logctx.Logger(ctx).With("error", err).ErrorContext(ctx, "refresh_commit_feed_error")
 		}
 		logctx.Logger(ctx).

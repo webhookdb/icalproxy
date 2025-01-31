@@ -38,6 +38,18 @@ General purpose configuration:
 - `WEBHOOK_PAGE_SIZE=`: Number of URLs in each webhook request.
 - `SENTRY_DSN=`: Set if using Sentry.
 
+Feed contents are stored in object storage like AWS S3 or Cloudflare R2,
+since otherwise they get too large for the relatively light needs of this database.
+
+- `S3_ACCESS_KEY_ID=testkey`: AWS or similar access key (Cloudflare R2, etc).
+  If empty, use the default AWS config loading behavior.
+- `S3_ACCESS_KEY_SECRET=testsecret`: AWS or similar secret (R2, etc).
+- `S3_BUCKET=icalproxy-feeds`: Bucket to store feeds.
+- `S3_ENDPOINT=http://localhost:18043`: Endpoint to reach S3, R2, etc.
+  Only set if not empty (so it can be empty for S3, for example).
+  If using Cloudflare R2, set to `https://<account id>.r2.cloudflarestorage.com`
+- `S3_PREFIX=icalproxy/feeds`: Key prefix to store feed files under.
+
 Feed refresh configuration:
 
 - `ICAL_BASE_TTL=2h`: The TTL for all `ics` feeds not overridden elsewhere in config.

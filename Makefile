@@ -11,8 +11,13 @@ install:
 
 up:
 	@docker compose up -d
+	@sleep 2
+	@./icalproxy dev create-s3-bucket
 stop:
 	@docker compose stop
+
+create-s3-bucket:
+	@./icalproxy dev create-s3-bucket
 
 fmt:
 	go fmt ./...

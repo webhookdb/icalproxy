@@ -141,7 +141,7 @@ func (h *endpointHandler) serveIfTtl(ctx context.Context) (bool, error) {
 	timeSinceFetch := time.Now().Sub(h.row.ContentsLastModified)
 	maxTtl := time.Duration(feed.TTLFor(h.url, h.ag.Config.IcalTTLMap))
 	if timeSinceFetch <= maxTtl {
-		fd, err := db.New(h.ag.DB).FetchContentsAsFeed(ctx, h.url)
+		fd, err := db.New(h.ag.DB).FetchContentsAsFeed(ctx, h.ag.FeedStorage, h.url)
 		if err != nil {
 			return false, ErrFallback
 		}
@@ -170,7 +170,7 @@ func (h *endpointHandler) refetchAndCommit(ctx context.Context) (*feed.Feed, err
 		if err := db.New(h.ag.DB).CommitUnchanged(ctx, fd); err != nil {
 			logctx.Logger(ctx).With("error", err).ErrorContext(ctx, "commit_unchanged_feed_error")
 		}
-		fd, err := db.New(h.ag.DB).FetchContentsAsFeed(ctx, h.url)
+		fd, err := db.New(h.ag.DB).FetchContentsAsFeed(ctx, h.ag.FeedStorage, h.url)
 		if err != nil {
 			return nil, ErrFallback
 		}
@@ -180,7 +180,7 @@ func (h *endpointHandler) refetchAndCommit(ctx context.Context) (*feed.Feed, err
 	// If the commit is coming through the server, we don't need to send a webhook.
 	// Note that we don't compare the feed to the database version like refresher does and CommitUnchanged;
 	// this code path should be relatively rare, since refresher should take care of keeping feeds up to date.
-	if err := db.New(h.ag.DB).CommitFeed(ctx, fd, nil); err != nil {
+	if err := db.New(h.ag.DB).CommitFeed(ctx, h.ag.FeedStorage, fd, nil); err != nil {
 		logctx.Logger(ctx).With("error", err).ErrorContext(ctx, "commit_feed_error")
 	}
 	return fd, nil

@@ -74,6 +74,7 @@ var _ = Describe("refresher", func() {
 				),
 			)
 			Expect(d.CommitFeed(ctx,
+				ag.FeedStorage,
 				feed.New(
 					fp.Must(url.Parse(origin.URL()+"/expired-ttl.ics")),
 					make(map[string]string),
@@ -82,6 +83,7 @@ var _ = Describe("refresher", func() {
 					time.Now().Add(-5*time.Hour),
 				), nil)).To(Succeed())
 			Expect(d.CommitFeed(ctx,
+				ag.FeedStorage,
 				feed.New(
 					fp.Must(url.Parse(origin.URL()+"/recent-ttl.ics")),
 					make(map[string]string),
@@ -104,6 +106,7 @@ var _ = Describe("refresher", func() {
 		It("sets changed feeds as pending a webhook if configured", func() {
 			ag.Config.WebhookUrl = "https://fake"
 			Expect(d.CommitFeed(ctx,
+				ag.FeedStorage,
 				feed.New(
 					fp.Must(url.Parse(origin.URL()+"/changed.ics")),
 					make(map[string]string),
@@ -115,6 +118,7 @@ var _ = Describe("refresher", func() {
 				ghttp.RespondWith(200, "CHANGED-DIFF"),
 			)
 			Expect(d.CommitFeed(ctx,
+				ag.FeedStorage,
 				feed.New(
 					fp.Must(url.Parse(origin.URL()+"/unchanged.ics")),
 					make(map[string]string),
@@ -126,6 +130,7 @@ var _ = Describe("refresher", func() {
 				ghttp.RespondWith(200, "UNCHANGED"),
 			)
 			Expect(d.CommitFeed(ctx,
+				ag.FeedStorage,
 				feed.New(
 					fp.Must(url.Parse(origin.URL()+"/erroring.ics")),
 					make(map[string]string),
@@ -162,15 +167,15 @@ var _ = Describe("refresher", func() {
 			rowCnt := 1003 + rand.Intn(500)
 			for i := 0; i < rowCnt; i++ {
 				istr := strconv.Itoa(i)
-				Expect(d.CommitFeed(ctx, expiredFeed("/feed-"+istr), nil)).To(Succeed())
+				Expect(d.CommitFeed(ctx, ag.FeedStorage, expiredFeed("/feed-"+istr), nil)).To(Succeed())
 				origin.RouteToHandler("GET", "/feed-"+istr, ghttp.RespondWith(200, "FETCHED-"+istr))
 			}
 			Expect(refresher.New(ag).Run(ctx)).To(Succeed())
 
-			row2 := fp.Must(d.FetchContentsAsFeed(ctx, fp.Must(url.Parse(origin.URL()+"/feed-2"))))
+			row2 := fp.Must(d.FetchContentsAsFeed(ctx, ag.FeedStorage, fp.Must(url.Parse(origin.URL()+"/feed-2"))))
 			Expect(string(row2.Body)).To(BeEquivalentTo("FETCHED-2"))
 
-			row1002 := fp.Must(d.FetchContentsAsFeed(ctx, fp.Must(url.Parse(origin.URL()+"/feed-1002"))))
+			row1002 := fp.Must(d.FetchContentsAsFeed(ctx, ag.FeedStorage, fp.Must(url.Parse(origin.URL()+"/feed-1002"))))
 			Expect(string(row1002.Body)).To(BeEquivalentTo("FETCHED-1002"))
 		})
 		It("commits rows that fail to fetch", func() {
@@ -180,7 +185,7 @@ var _ = Describe("refresher", func() {
 					ghttp.RespondWith(401, "errbody"),
 				),
 			)
-			Expect(d.CommitFeed(ctx, expiredFeed("/expired-ttl.ics"), nil)).To(Succeed())
+			Expect(d.CommitFeed(ctx, ag.FeedStorage, expiredFeed("/expired-ttl.ics"), nil)).To(Succeed())
 
 			Expect(refresher.New(ag).Run(ctx)).To(Succeed())
 
@@ -195,7 +200,7 @@ var _ = Describe("refresher", func() {
 			))
 		})
 		It("marks repeated fetch failures as unchanged (compares bodies)", func() {
-			Expect(d.CommitFeed(ctx, expiredFeed("/feed.ics"), nil)).To(Succeed())
+			Expect(d.CommitFeed(ctx, ag.FeedStorage, expiredFeed("/feed.ics"), nil)).To(Succeed())
 			origin.AppendHandlers(
 				ghttp.CombineHandlers(
 					ghttp.VerifyRequest("GET", "/feed.ics", ""),
@@ -228,7 +233,7 @@ var _ = Describe("refresher", func() {
 					},
 				),
 			)
-			Expect(d.CommitFeed(ctx, expiredFeed("/expired-ttl.ics"), nil)).To(Succeed())
+			Expect(d.CommitFeed(ctx, ag.FeedStorage, expiredFeed("/expired-ttl.ics"), nil)).To(Succeed())
 
 			Expect(refresher.New(ag).Run(ctx)).To(Succeed())
 
@@ -249,6 +254,7 @@ var _ = Describe("refresher", func() {
 				),
 			)
 			Expect(d.CommitFeed(ctx,
+				ag.FeedStorage,
 				feed.New(
 					fp.Must(url.Parse(origin.URL()+"/expired-ttl.ics")),
 					make(map[string]string),
@@ -277,6 +283,7 @@ var _ = Describe("refresher", func() {
 				),
 			)
 			Expect(d.CommitFeed(ctx,
+				ag.FeedStorage,
 				feed.New(
 					fp.Must(url.Parse(origin.URL()+"/expired-ttl.ics")),
 					make(map[string]string),
@@ -309,17 +316,17 @@ var _ = Describe("refresher", func() {
 			ag.Config.IcalTTLMap["60MINLOCALHOST"] = types.TTL(60 * time.Minute)
 			hd := make(map[string]string)
 
-			Expect(d.CommitFeed(ctx,
+			Expect(d.CommitFeed(ctx, ag.FeedStorage,
 				feed.New(fp.Must(url.Parse("https://30min.localhost/15old")), hd, 200, []byte("ORIGINAL"), time.Now().Add(-15*time.Minute)), nil,
 			)).To(Succeed())
-			Expect(d.CommitFeed(ctx,
+			Expect(d.CommitFeed(ctx, ag.FeedStorage,
 				feed.New(fp.Must(url.Parse("https://30min.localhost/45old")), hd, 200, []byte("ORIGINAL"), time.Now().Add(-45*time.Minute)), nil,
 			)).To(Succeed())
 
-			Expect(d.CommitFeed(ctx,
+			Expect(d.CommitFeed(ctx, ag.FeedStorage,
 				feed.New(fp.Must(url.Parse("https://60min.localhost/45old")), hd, 200, []byte("ORIGINAL"), time.Now().Add(-45*time.Minute)), nil,
 			)).To(Succeed())
-			Expect(d.CommitFeed(ctx,
+			Expect(d.CommitFeed(ctx, ag.FeedStorage,
 				feed.New(fp.Must(url.Parse("https://60min.localhost/75old")), hd, 200, []byte("ORIGINAL"), time.Now().Add(-75*time.Minute)), nil,
 			)).To(Succeed())
 

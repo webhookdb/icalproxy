@@ -139,7 +139,7 @@ var _ = Describe("feed", func() {
 						// We need to cancel the context after the body starts getting read;
 						// if we cancel it immediately we'll time out the GET itself so won't test the body read.
 						// So start writing the body, enough to fill buffers, then cancel the context.
-						for i := 0; i < 25_000; i++ {
+						for i := 0; i < 1000_000; i++ {
 							_, _ = w.Write([]byte("1"))
 						}
 						cancel()
@@ -160,7 +160,7 @@ var _ = Describe("feed", func() {
 					func(w http.ResponseWriter, r *http.Request) {
 						// See previous test for explanation, this uses an error status code to check we don't lose it.
 						w.WriteHeader(400)
-						for i := 0; i < 50_000; i++ {
+						for i := 0; i < 1000_000; i++ {
 							_, _ = w.Write([]byte("1"))
 						}
 						cancel()

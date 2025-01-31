@@ -23,6 +23,8 @@ jobs:
         run: make build
       - name: Migrate database
         run: make db-migrate
+      - name: Create s3 bucket
+        run: make create-s3-bucket
       - name: Run vet, lint, tests
         run: make check
 #      - name: Upload coverage reports to Codecov
