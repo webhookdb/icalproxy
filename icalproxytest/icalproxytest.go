@@ -27,7 +27,7 @@ type FeedRow struct {
 // which are usually only generated during testing.
 func TruncateLocal(ctx context.Context, db *pgxpool.Pool) error {
 	_, err := db.Exec(ctx, `
-DELETE FROM icalproxy_feeds_v1
+DELETE FROM icalproxy_feeds_v2
 WHERE starts_with(url_host_rev, reverse('127001')) OR starts_with(url_host_rev, reverse('LOCALHOST'))`)
 	if err != nil {
 		return err

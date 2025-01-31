@@ -51,7 +51,7 @@ func (r *Notifier) processChunk(ctx context.Context) (int, error) {
 		start := time.Now()
 		logctx.Logger(ctx).DebugContext(ctx, "notifier_querying_chunk")
 		q := fmt.Sprintf(`SELECT id, url
-FROM icalproxy_feeds_v1
+FROM icalproxy_feeds_v2
 WHERE webhook_pending
 LIMIT %d
 FOR UPDATE SKIP LOCKED
@@ -92,7 +92,7 @@ FOR UPDATE SKIP LOCKED
 		} else if resp.StatusCode >= 400 {
 			return fmt.Errorf("error sending webhook: %d", resp.StatusCode)
 		}
-		if _, err := tx.Exec(ctx, `UPDATE icalproxy_feeds_v1 SET webhook_pending=false WHERE id = ANY($1)`, ids); err != nil {
+		if _, err := tx.Exec(ctx, `UPDATE icalproxy_feeds_v2 SET webhook_pending=false WHERE id = ANY($1)`, ids); err != nil {
 			return internal.ErrWrap(err, "updating row")
 		}
 		count += len(urls)

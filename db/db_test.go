@@ -101,7 +101,7 @@ var _ = Describe("db", func() {
 			Expect(err).To(MatchError(ContainSubstring("no rows in result set")))
 		})
 		It("returns an error if the content is not stored", func() {
-			_, err := ag.DB.Exec(ctx, `INSERT INTO icalproxy_feeds_v1(url, url_host_rev, checked_at, contents_md5, contents_last_modified, contents_size, fetch_status, fetch_headers)
+			_, err := ag.DB.Exec(ctx, `INSERT INTO icalproxy_feeds_v2(url, url_host_rev, checked_at, contents_md5, contents_last_modified, contents_size, fetch_status, fetch_headers)
 VALUES ('https://localhost/feed', 'TSOHLACOL', now(), 'abc123', now(), 5, 200, '{}')`)
 			Expect(err).ToNot(HaveOccurred())
 			_, err = d.FetchContentsAsFeed(ctx, fs, fp.Must(url.Parse("https://localhost/feed")))
@@ -123,7 +123,7 @@ VALUES ('https://localhost/feed', 'TSOHLACOL', now(), 'abc123', now(), 5, 200, '
 			}, nil)).To(Succeed())
 			Expect(fs.Files).To(HaveLen(1))
 			rowv1 := fp.Must(pgx.CollectExactlyOneRow[FeedRow](
-				fp.Must(ag.DB.Query(ctx, `SELECT * FROM icalproxy_feeds_v1 WHERE url = 'https://localhost/feed'`)),
+				fp.Must(ag.DB.Query(ctx, `SELECT * FROM icalproxy_feeds_v2 WHERE url = 'https://localhost/feed'`)),
 				pgx.RowToStructByName[FeedRow],
 			))
 			Expect(fs.Files[rowv1.Id]).To(BeEquivalentTo("version1"))
@@ -151,7 +151,7 @@ VALUES ('https://localhost/feed', 'TSOHLACOL', now(), 'abc123', now(), 5, 200, '
 				FetchedAt:   t2,
 			}, nil)).To(Succeed())
 			rowv2 := fp.Must(pgx.CollectExactlyOneRow[FeedRow](
-				fp.Must(ag.DB.Query(ctx, `SELECT * FROM icalproxy_feeds_v1 WHERE url = 'https://localhost/feed'`)),
+				fp.Must(ag.DB.Query(ctx, `SELECT * FROM icalproxy_feeds_v2 WHERE url = 'https://localhost/feed'`)),
 				pgx.RowToStructByName[FeedRow],
 			))
 			Expect(fs.Files[rowv2.Id]).To(BeEquivalentTo("version2X"))
@@ -179,7 +179,7 @@ VALUES ('https://localhost/feed', 'TSOHLACOL', now(), 'abc123', now(), 5, 200, '
 			}, nil)).To(Succeed())
 			Expect(fs.Files).To(BeEmpty())
 			rowv1 := fp.Must(pgx.CollectExactlyOneRow[FeedRow](
-				fp.Must(ag.DB.Query(ctx, `SELECT * FROM icalproxy_feeds_v1 WHERE url = 'https://localhost/feed'`)),
+				fp.Must(ag.DB.Query(ctx, `SELECT * FROM icalproxy_feeds_v2 WHERE url = 'https://localhost/feed'`)),
 				pgx.RowToStructByName[FeedRow],
 			))
 			Expect(rowv1).To(And(
@@ -206,7 +206,7 @@ VALUES ('https://localhost/feed', 'TSOHLACOL', now(), 'abc123', now(), 5, 200, '
 			}, nil)).To(Succeed())
 			Expect(fs.Files).To(BeEmpty())
 			rowv2 := fp.Must(pgx.CollectExactlyOneRow[FeedRow](
-				fp.Must(ag.DB.Query(ctx, `SELECT * FROM icalproxy_feeds_v1 WHERE url = 'https://localhost/feed'`)),
+				fp.Must(ag.DB.Query(ctx, `SELECT * FROM icalproxy_feeds_v2 WHERE url = 'https://localhost/feed'`)),
 				pgx.RowToStructByName[FeedRow],
 			))
 			Expect(rowv2).To(And(
@@ -243,7 +243,7 @@ VALUES ('https://localhost/feed', 'TSOHLACOL', now(), 'abc123', now(), 5, 200, '
 			}, nil)).To(Succeed())
 
 			row := fp.Must(pgx.CollectExactlyOneRow[FeedRow](
-				fp.Must(ag.DB.Query(ctx, `SELECT * FROM icalproxy_feeds_v1 WHERE url = 'https://localhost/feed'`)),
+				fp.Must(ag.DB.Query(ctx, `SELECT * FROM icalproxy_feeds_v2 WHERE url = 'https://localhost/feed'`)),
 				pgx.RowToStructByName[FeedRow],
 			))
 			Expect(row).To(And(
@@ -278,7 +278,7 @@ VALUES ('https://localhost/feed', 'TSOHLACOL', now(), 'abc123', now(), 5, 200, '
 				FetchedAt:   t2,
 			}, nil)).To(Succeed())
 			row := fp.Must(pgx.CollectExactlyOneRow[FeedRow](
-				fp.Must(ag.DB.Query(ctx, `SELECT * FROM icalproxy_feeds_v1 WHERE url = 'https://localhost/feed'`)),
+				fp.Must(ag.DB.Query(ctx, `SELECT * FROM icalproxy_feeds_v2 WHERE url = 'https://localhost/feed'`)),
 				pgx.RowToStructByName[FeedRow],
 			))
 			Expect(row).To(And(
@@ -305,7 +305,7 @@ VALUES ('https://localhost/feed', 'TSOHLACOL', now(), 'abc123', now(), 5, 200, '
 			}
 			Expect(d.CommitFeed(ctx, fs, fd, &db.CommitFeedOptions{WebhookPending: true})).To(Succeed())
 			rowinsert := fp.Must(pgx.CollectExactlyOneRow[FeedRow](
-				fp.Must(ag.DB.Query(ctx, `SELECT * FROM icalproxy_feeds_v1 WHERE url = 'https://localhost/feed'`)),
+				fp.Must(ag.DB.Query(ctx, `SELECT * FROM icalproxy_feeds_v2 WHERE url = 'https://localhost/feed'`)),
 				pgx.RowToStructByName[FeedRow],
 			))
 			Expect(rowinsert).To(And(
@@ -314,7 +314,7 @@ VALUES ('https://localhost/feed', 'TSOHLACOL', now(), 'abc123', now(), 5, 200, '
 
 			Expect(d.CommitFeed(ctx, fs, fd, &db.CommitFeedOptions{WebhookPending: true})).To(Succeed())
 			rowupdate := fp.Must(pgx.CollectExactlyOneRow[FeedRow](
-				fp.Must(ag.DB.Query(ctx, `SELECT * FROM icalproxy_feeds_v1 WHERE url = 'https://localhost/feed'`)),
+				fp.Must(ag.DB.Query(ctx, `SELECT * FROM icalproxy_feeds_v2 WHERE url = 'https://localhost/feed'`)),
 				pgx.RowToStructByName[FeedRow],
 			))
 			Expect(rowupdate).To(And(
@@ -333,7 +333,7 @@ VALUES ('https://localhost/feed', 'TSOHLACOL', now(), 'abc123', now(), 5, 200, '
 			}
 			Expect(d.CommitFeed(ctx, fs, fd, &db.CommitFeedOptions{WebhookPendingOnInsert: true})).To(Succeed())
 			rowinsert := fp.Must(pgx.CollectExactlyOneRow[FeedRow](
-				fp.Must(ag.DB.Query(ctx, `SELECT * FROM icalproxy_feeds_v1 WHERE url = 'https://localhost/feed'`)),
+				fp.Must(ag.DB.Query(ctx, `SELECT * FROM icalproxy_feeds_v2 WHERE url = 'https://localhost/feed'`)),
 				pgx.RowToStructByName[FeedRow],
 			))
 			Expect(rowinsert).To(And(
@@ -357,7 +357,7 @@ VALUES ('https://localhost/feed', 'TSOHLACOL', now(), 'abc123', now(), 5, 200, '
 			fd.FetchedAt = t
 			Expect(d.CommitUnchanged(ctx, fd)).To(Succeed())
 			row := fp.Must(pgx.CollectExactlyOneRow[FeedRow](
-				fp.Must(ag.DB.Query(ctx, `SELECT * FROM icalproxy_feeds_v1 WHERE url = 'https://localhost/feed'`)),
+				fp.Must(ag.DB.Query(ctx, `SELECT * FROM icalproxy_feeds_v2 WHERE url = 'https://localhost/feed'`)),
 				pgx.RowToStructByName[FeedRow],
 			))
 			Expect(row).To(And(
@@ -368,12 +368,12 @@ VALUES ('https://localhost/feed', 'TSOHLACOL', now(), 'abc123', now(), 5, 200, '
 	})
 	Describe("ExpireFeed", func() {
 		It("resets the fetch-at time so TTL will be expired", func() {
-			_, err := ag.DB.Exec(ctx, `INSERT INTO icalproxy_feeds_v1(url, url_host_rev, checked_at, contents_md5, contents_last_modified, contents_size, fetch_status, fetch_headers)
+			_, err := ag.DB.Exec(ctx, `INSERT INTO icalproxy_feeds_v2(url, url_host_rev, checked_at, contents_md5, contents_last_modified, contents_size, fetch_status, fetch_headers)
 VALUES ('https://localhost/feed', 'TSOHLACOL', now(), 'abc123', now(), 5, 200, '{}')`)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(db.New(ag.DB).ExpireFeed(ctx, fp.Must(url.Parse("https://localhost/feed")))).To(Succeed())
 			row := fp.Must(pgx.CollectExactlyOneRow[FeedRow](
-				fp.Must(ag.DB.Query(ctx, `SELECT * FROM icalproxy_feeds_v1 WHERE url = 'https://localhost/feed'`)),
+				fp.Must(ag.DB.Query(ctx, `SELECT * FROM icalproxy_feeds_v2 WHERE url = 'https://localhost/feed'`)),
 				pgx.RowToStructByName[FeedRow],
 			))
 			Expect(row).To(And(

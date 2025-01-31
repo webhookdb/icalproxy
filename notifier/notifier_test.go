@@ -108,7 +108,7 @@ var _ = Describe("notifier", func() {
 			Expect(notifier.New(ag).Run(ctx)).To(Succeed())
 
 			row := fp.Must(pgx.CollectExactlyOneRow[FeedRow](
-				fp.Must(ag.DB.Query(ctx, `SELECT * FROM icalproxy_feeds_v1 WHERE url = 'https://notifiertest.localhost/feed-5'`)),
+				fp.Must(ag.DB.Query(ctx, `SELECT * FROM icalproxy_feeds_v2 WHERE url = 'https://notifiertest.localhost/feed-5'`)),
 				pgx.RowToStructByName[FeedRow],
 			))
 			Expect(row).To(HaveField("WebhookPending", false))
@@ -134,7 +134,7 @@ var _ = Describe("notifier", func() {
 			Expect(notifier.New(ag).Run(ctx)).To(MatchError(ContainSubstring("error sending webhook: 503")))
 
 			row := fp.Must(pgx.CollectExactlyOneRow[FeedRow](
-				fp.Must(ag.DB.Query(ctx, `SELECT * FROM icalproxy_feeds_v1 WHERE url = 'https://notifiertest.localhost/feed'`)),
+				fp.Must(ag.DB.Query(ctx, `SELECT * FROM icalproxy_feeds_v2 WHERE url = 'https://notifiertest.localhost/feed'`)),
 				pgx.RowToStructByName[FeedRow],
 			))
 			Expect(row).To(HaveField("WebhookPending", true))

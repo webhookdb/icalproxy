@@ -246,7 +246,7 @@ func handleStats(ag *appglobals.AppGlobals) echo.HandlerFunc {
 			refreshRowCnt = -1
 		}
 		countLatency := time.Since(countStart)
-		whRowCnt, err := pgxt.GetScalar[int64](ctx, ag.DB, "SELECT count(1) FROM icalproxy_feeds_v1 WHERE webhook_pending")
+		whRowCnt, err := pgxt.GetScalar[int64](ctx, ag.DB, "SELECT count(1) FROM icalproxy_feeds_v2 WHERE webhook_pending")
 		if err != nil {
 			logctx.Logger(ctx).With("error", err).ErrorContext(ctx, "counting_rows_pending_webhook")
 			whRowCnt = -1
