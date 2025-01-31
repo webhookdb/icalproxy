@@ -11,6 +11,8 @@ import (
 	"github.com/webhookdb/icalproxy/appglobals"
 	"github.com/webhookdb/icalproxy/db"
 	"github.com/webhookdb/icalproxy/feed"
+	"github.com/webhookdb/icalproxy/feedstorage"
+	"github.com/webhookdb/icalproxy/internal"
 	"github.com/webhookdb/icalproxy/pgxt"
 	"github.com/webhookdb/icalproxy/refresher"
 	"github.com/webhookdb/icalproxy/types"
@@ -142,7 +144,9 @@ func (h *endpointHandler) serveIfTtl(ctx context.Context) (bool, error) {
 	maxTtl := time.Duration(feed.TTLFor(h.url, h.ag.Config.IcalTTLMap))
 	if timeSinceFetch <= maxTtl {
 		fd, err := db.New(h.ag.DB).FetchContentsAsFeed(ctx, h.ag.FeedStorage, h.url)
-		if err != nil {
+		if errors.Is(err, feedstorage.ErrNotFound) {
+			return false, nil
+		} else if err != nil {
 			return false, ErrFallback
 		}
 		h.c.Response().Header().Set("Ical-Proxy-Cached", "true")
@@ -167,12 +171,19 @@ func (h *endpointHandler) refetchAndCommit(ctx context.Context) (*feed.Feed, err
 	} else if errors.Is(err, feed.ErrNotModified) {
 		// If origin told us there are no changes, we need to commit the feed to reset its TTL,
 		// and then serve whatever is in cache.
-		if err := db.New(h.ag.DB).CommitUnchanged(ctx, fd); err != nil {
+		dbo := db.New(h.ag.DB)
+		if err := dbo.CommitUnchanged(ctx, fd); err != nil {
 			logctx.Logger(ctx).With("error", err).ErrorContext(ctx, "commit_unchanged_feed_error")
 		}
-		fd, err := db.New(h.ag.DB).FetchContentsAsFeed(ctx, h.ag.FeedStorage, h.url)
+		fd, err := dbo.FetchContentsAsFeed(ctx, h.ag.FeedStorage, h.url)
 		if err != nil {
 			return nil, ErrFallback
+		} else if fd.Body == nil {
+			logctx.Logger(ctx).ErrorContext(ctx, "unchanged_feed_body_empty")
+			if err := dbo.ExpireFeed(ctx, h.url); err != nil {
+				return nil, internal.ErrWrap(err, "expiring feed")
+			}
+			return h.refetchAndCommit(ctx)
 		}
 		return fd, nil
 	}
@@ -235,7 +246,7 @@ func handleStats(ag *appglobals.AppGlobals) echo.HandlerFunc {
 			refreshRowCnt = -1
 		}
 		countLatency := time.Since(countStart)
-		whRowCnt, err := pgxt.GetScalar[int64](ctx, ag.DB, "SELECT count(1) FROM icalproxy_feeds_v1 WHERE webhook_pending")
+		whRowCnt, err := pgxt.GetScalar[int64](ctx, ag.DB, "SELECT count(1) FROM icalproxy_feeds_v2 WHERE webhook_pending")
 		if err != nil {
 			logctx.Logger(ctx).With("error", err).ErrorContext(ctx, "counting_rows_pending_webhook")
 			whRowCnt = -1

@@ -47,7 +47,7 @@ func (r *Refresher) Run(ctx context.Context) error {
 func (r *Refresher) buildSelectQuery(now time.Time) string {
 	whereSql := r.buildSelectQueryWhere(now)
 	q := fmt.Sprintf(`SELECT url, contents_md5, fetch_status, fetch_headers
-FROM icalproxy_feeds_v1
+FROM icalproxy_feeds_v2
 WHERE %s
 LIMIT %d
 FOR UPDATE SKIP LOCKED
@@ -91,7 +91,7 @@ func (r *Refresher) SelectRowsToProcess(ctx context.Context, tx pgx.Tx) ([]RowTo
 func (r *Refresher) ExplainSelectQuery(ctx context.Context) (string, error) {
 	var lines []string
 	err := pgxt.WithTransaction(ctx, r.ag.DB, func(tx pgx.Tx) error {
-		if _, err := tx.Exec(ctx, "SET enable_seqscan = OFF; ANALYZE icalproxy_feeds_v1"); err != nil {
+		if _, err := tx.Exec(ctx, "SET enable_seqscan = OFF; ANALYZE icalproxy_feeds_v2"); err != nil {
 			return err
 		}
 		lns, err := pgxt.GetScalars[string](ctx, r.ag.DB, "EXPLAIN ANALYZE "+r.buildSelectQuery(time.Now()))
@@ -106,7 +106,7 @@ func (r *Refresher) ExplainSelectQuery(ctx context.Context) (string, error) {
 
 func (r *Refresher) CountRowsAwaitingRefresh(ctx context.Context) (int64, error) {
 	whereSql := r.buildSelectQueryWhere(time.Now())
-	q := fmt.Sprintf(`SELECT count(1) FROM icalproxy_feeds_v1 WHERE %s`, whereSql)
+	q := fmt.Sprintf(`SELECT count(1) FROM icalproxy_feeds_v2 WHERE %s`, whereSql)
 	return pgxt.GetScalar[int64](ctx, r.ag.DB, q)
 }
 

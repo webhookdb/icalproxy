@@ -3,6 +3,7 @@ package feedstorage
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
@@ -15,8 +16,13 @@ import (
 	"io"
 )
 
+var ErrNotFound = errors.New("not found")
+
 type Interface interface {
+	// Store stores the feed bytes in storage.
 	Store(ctx context.Context, feedId int64, body []byte) error
+	// Fetch fetches the feed from storage and returns the bytes.
+	// If the feed is not stored, return ErrNotFound as the error.
 	Fetch(ctx context.Context, feedId int64) ([]byte, error)
 }
 
@@ -68,7 +74,7 @@ func (s *Storage) Fetch(ctx context.Context, feedId int64) ([]byte, error) {
 		Key:    s.key(feedId),
 	})
 	if _, ok := fp.ErrorAs[*s3types.NoSuchKey](err); ok {
-		return nil, nil
+		return nil, ErrNotFound
 	} else if err != nil {
 		return nil, internal.ErrWrap(err, "s3 GetObject")
 	}

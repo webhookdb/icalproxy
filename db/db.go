@@ -39,7 +39,7 @@ func (db *DB) exec(ctx context.Context, query string, args ...interface{}) error
 
 func (db *DB) Migrate(ctx context.Context) error {
 	const q = `
-CREATE TABLE IF NOT EXISTS icalproxy_feeds_v1 (
+CREATE TABLE IF NOT EXISTS icalproxy_feeds_v2 (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     url TEXT NOT NULL UNIQUE NOT NULL,
     -- Host TTL is specified using suffixes/ends with (icloud.com vs p123.icloud.com),
@@ -57,17 +57,17 @@ CREATE TABLE IF NOT EXISTS icalproxy_feeds_v1 (
     webhook_pending BOOL NOT NULL DEFAULT FALSE
 );
 -- See above for details on this index.
-CREATE INDEX IF NOT EXISTS icalproxy_feeds_v1_url_host_rev_idx ON icalproxy_feeds_v1(url_host_rev COLLATE "C");
+CREATE INDEX IF NOT EXISTS icalproxy_feeds_v2_url_host_rev_idx ON icalproxy_feeds_v2(url_host_rev COLLATE "C");
 -- Index checked_at since we need to know recent rows.
-CREATE INDEX IF NOT EXISTS icalproxy_feeds_v1_checked_at_idx ON icalproxy_feeds_v1(checked_at);
+CREATE INDEX IF NOT EXISTS icalproxy_feeds_v2_checked_at_idx ON icalproxy_feeds_v2(checked_at);
 -- Use partial index, we only need to check where something is pending, never where it's not.
-CREATE INDEX IF NOT EXISTS icalproxy_feeds_v1_webhook_pending_idx ON icalproxy_feeds_v1((1)) WHERE webhook_pending;
+CREATE INDEX IF NOT EXISTS icalproxy_feeds_v2_webhook_pending_idx ON icalproxy_feeds_v2((1)) WHERE webhook_pending;
 `
 	return db.exec(ctx, q)
 }
 
 func (db *DB) Reset(ctx context.Context) error {
-	const q = `DROP TABLE IF EXISTS icalproxy_feeds_v1;`
+	const q = `DROP TABLE IF EXISTS icalproxy_feeds_v2;`
 	return db.exec(ctx, q)
 }
 
@@ -79,7 +79,7 @@ type FeedRow struct {
 
 func (db *DB) FetchFeedRow(ctx context.Context, uri *url.URL) (*FeedRow, error) {
 	r := FeedRow{}
-	const q = `SELECT contents_md5, contents_last_modified, fetch_headers FROM icalproxy_feeds_v1 WHERE url = $1`
+	const q = `SELECT contents_md5, contents_last_modified, fetch_headers FROM icalproxy_feeds_v2 WHERE url = $1`
 	err := db.conn.QueryRow(ctx, q, uri.String()).Scan(&r.ContentsMD5, &r.ContentsLastModified, &r.FetchHeaders)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -93,12 +93,12 @@ func (db *DB) FetchFeedRow(ctx context.Context, uri *url.URL) (*FeedRow, error) 
 func (db *DB) FetchContentsAsFeed(ctx context.Context, feedStorage feedstorage.Interface, uri *url.URL) (*feed.Feed, error) {
 	r := feed.Feed{}
 	var fetchHeaders json.RawMessage
-	// Having now row in the contents table is fine, since we may have committed an error feed
+	// Having no row in the contents table is fine, since we may have committed an error feed
 	// as an initial version, which will not have contents.
 	var feedId int64
 	const q = `SELECT
 	id, fetch_headers, fetch_status, checked_at, contents_md5, (CASE WHEN fetch_status >= 400 THEN fetch_error_body ELSE NULL END)
-FROM icalproxy_feeds_v1
+FROM icalproxy_feeds_v2
 WHERE url = $1`
 	err := db.conn.QueryRow(ctx, q, uri.String()).Scan(
 		&feedId, &fetchHeaders, &r.HttpStatus, &r.FetchedAt, &r.MD5, &r.Body,
@@ -144,7 +144,7 @@ func (db *DB) CommitFeed(ctx context.Context, feedStorage feedstorage.Interface,
 	}
 
 	if feed.HttpStatus >= 400 {
-		const errQuery = `INSERT INTO icalproxy_feeds_v1 
+		const errQuery = `INSERT INTO icalproxy_feeds_v2 
 (url, url_host_rev, checked_at, fetch_status, fetch_headers, fetch_error_body, contents_md5, contents_last_modified, contents_size)
 VALUES ($1, $2, $3, $4, $5, $6, '', $7, 0)
 ON CONFLICT (url) DO UPDATE SET
@@ -167,7 +167,7 @@ ON CONFLICT (url) DO UPDATE SET
 		}
 		return nil
 	}
-	const feedQuery = `INSERT INTO icalproxy_feeds_v1 
+	const feedQuery = `INSERT INTO icalproxy_feeds_v2 
 (url, url_host_rev, checked_at, fetch_status, fetch_headers, contents_md5, contents_last_modified, contents_size, fetch_error_body, webhook_pending)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, '', $9)
 ON CONFLICT (url) DO UPDATE SET
@@ -206,9 +206,21 @@ RETURNING id`
 
 func (db *DB) CommitUnchanged(ctx context.Context, feed *feed.Feed) error {
 	fetchedTrunc := feed.FetchedAt.Truncate(time.Second)
-	const query = `UPDATE icalproxy_feeds_v1 SET checked_at = $1 WHERE url = $2`
+	const query = `UPDATE icalproxy_feeds_v2 SET checked_at = $1 WHERE url = $2`
 	if err := db.exec(ctx, query, fetchedTrunc, feed.Url); err != nil {
 		return internal.ErrWrap(err, "unable to update feed")
+	}
+	return nil
+}
+
+// ExpireFeed sets the timestamps on the row to UNIX 0,
+// so TTLs will all be expired. This should rarely be necessary;
+// it will only happen if something manually changes feed storage.
+func (db *DB) ExpireFeed(ctx context.Context, u *url.URL) error {
+	t := time.Time{}
+	const query = `UPDATE icalproxy_feeds_v2 SET checked_at = $1, contents_last_modified = $1 WHERE url = $2`
+	if err := db.exec(ctx, query, t, u); err != nil {
+		return internal.ErrWrap(err, "unable to expire feed")
 	}
 	return nil
 }

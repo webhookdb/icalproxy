@@ -23,7 +23,7 @@ func (f *FakeFeedStorage) Fetch(_ context.Context, feedId int64) ([]byte, error)
 	defer f.mux.Unlock()
 	b, ok := f.Files[feedId]
 	if !ok {
-		return nil, nil
+		return nil, feedstorage.ErrNotFound
 	}
 	return b, nil
 }
