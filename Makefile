@@ -12,9 +12,12 @@ install:
 up:
 	@docker compose up -d
 	@sleep 2
-	@aws --endpoint-url=http://localhost:18043 s3api create-bucket --no-sign-request --bucket icalproxy-feeds
+	@./icalproxy dev create-s3-bucket
 stop:
 	@docker compose stop
+
+create-s3-bucket:
+	@./icalproxy dev create-s3-bucket
 
 fmt:
 	go fmt ./...

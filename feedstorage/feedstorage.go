@@ -47,6 +47,10 @@ type Storage struct {
 	prefix   string
 }
 
+func (s *Storage) S3Client() *s3.Client {
+	return s.s3Client
+}
+
 func (s *Storage) Store(ctx context.Context, feedId int64, body []byte) error {
 	if _, err := s.s3Client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket: s.bucket,
