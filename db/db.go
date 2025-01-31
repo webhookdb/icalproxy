@@ -93,7 +93,7 @@ func (db *DB) FetchFeedRow(ctx context.Context, uri *url.URL) (*FeedRow, error) 
 func (db *DB) FetchContentsAsFeed(ctx context.Context, feedStorage feedstorage.Interface, uri *url.URL) (*feed.Feed, error) {
 	r := feed.Feed{}
 	var fetchHeaders json.RawMessage
-	// Having now row in the contents table is fine, since we may have committed an error feed
+	// Having no row in the contents table is fine, since we may have committed an error feed
 	// as an initial version, which will not have contents.
 	var feedId int64
 	const q = `SELECT
@@ -209,6 +209,18 @@ func (db *DB) CommitUnchanged(ctx context.Context, feed *feed.Feed) error {
 	const query = `UPDATE icalproxy_feeds_v1 SET checked_at = $1 WHERE url = $2`
 	if err := db.exec(ctx, query, fetchedTrunc, feed.Url); err != nil {
 		return internal.ErrWrap(err, "unable to update feed")
+	}
+	return nil
+}
+
+// ExpireFeed sets the timestamps on the row to UNIX 0,
+// so TTLs will all be expired. This should rarely be necessary;
+// it will only happen if something manually changes feed storage.
+func (db *DB) ExpireFeed(ctx context.Context, u *url.URL) error {
+	t := time.Time{}
+	const query = `UPDATE icalproxy_feeds_v1 SET checked_at = $1, contents_last_modified = $1 WHERE url = $2`
+	if err := db.exec(ctx, query, t, u); err != nil {
+		return internal.ErrWrap(err, "unable to expire feed")
 	}
 	return nil
 }

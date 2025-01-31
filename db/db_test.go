@@ -10,6 +10,7 @@ import (
 	"github.com/webhookdb/icalproxy/config"
 	"github.com/webhookdb/icalproxy/db"
 	"github.com/webhookdb/icalproxy/feed"
+	"github.com/webhookdb/icalproxy/feedstorage"
 	"github.com/webhookdb/icalproxy/feedstorage/fakefeedstorage"
 	"github.com/webhookdb/icalproxy/fp"
 	. "github.com/webhookdb/icalproxy/icalproxytest"
@@ -99,14 +100,12 @@ var _ = Describe("db", func() {
 			_, err := d.FetchContentsAsFeed(ctx, fs, fp.Must(url.Parse("https://localhost/feed")))
 			Expect(err).To(MatchError(ContainSubstring("no rows in result set")))
 		})
-		It("returns an empty body if only the content row does not exist", func() {
+		It("returns an error if the content is not stored", func() {
 			_, err := ag.DB.Exec(ctx, `INSERT INTO icalproxy_feeds_v1(url, url_host_rev, checked_at, contents_md5, contents_last_modified, contents_size, fetch_status, fetch_headers)
 VALUES ('https://localhost/feed', 'TSOHLACOL', now(), 'abc123', now(), 5, 200, '{}')`)
 			Expect(err).ToNot(HaveOccurred())
-			r, err := d.FetchContentsAsFeed(ctx, fs, fp.Must(url.Parse("https://localhost/feed")))
-			Expect(err).ToNot(HaveOccurred())
-			Expect(r.Body).To(BeEmpty())
-			Expect(r.MD5).To(BeEquivalentTo("abc123"))
+			_, err = d.FetchContentsAsFeed(ctx, fs, fp.Must(url.Parse("https://localhost/feed")))
+			Expect(err).To(MatchError(feedstorage.ErrNotFound))
 		})
 	})
 	Describe("CommitFeed", func() {
@@ -364,6 +363,22 @@ VALUES ('https://localhost/feed', 'TSOHLACOL', now(), 'abc123', now(), 5, 200, '
 			Expect(row).To(And(
 				HaveField("CheckedAt", BeTemporally("==", t)),
 				HaveField("ContentsMD5", BeEquivalentTo("version1hash")),
+			))
+		})
+	})
+	Describe("ExpireFeed", func() {
+		It("resets the fetch-at time so TTL will be expired", func() {
+			_, err := ag.DB.Exec(ctx, `INSERT INTO icalproxy_feeds_v1(url, url_host_rev, checked_at, contents_md5, contents_last_modified, contents_size, fetch_status, fetch_headers)
+VALUES ('https://localhost/feed', 'TSOHLACOL', now(), 'abc123', now(), 5, 200, '{}')`)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(db.New(ag.DB).ExpireFeed(ctx, fp.Must(url.Parse("https://localhost/feed")))).To(Succeed())
+			row := fp.Must(pgx.CollectExactlyOneRow[FeedRow](
+				fp.Must(ag.DB.Query(ctx, `SELECT * FROM icalproxy_feeds_v1 WHERE url = 'https://localhost/feed'`)),
+				pgx.RowToStructByName[FeedRow],
+			))
+			Expect(row).To(And(
+				HaveField("CheckedAt", BeTemporally("==", time.Time{})),
+				HaveField("ContentsLastModified", BeTemporally("==", time.Time{})),
 			))
 		})
 	})
