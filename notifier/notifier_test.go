@@ -12,6 +12,7 @@ import (
 	"github.com/webhookdb/icalproxy/config"
 	"github.com/webhookdb/icalproxy/db"
 	"github.com/webhookdb/icalproxy/feed"
+	"github.com/webhookdb/icalproxy/feedstorage/fakefeedstorage"
 	"github.com/webhookdb/icalproxy/fp"
 	. "github.com/webhookdb/icalproxy/icalproxytest"
 	"github.com/webhookdb/icalproxy/notifier"
@@ -30,6 +31,7 @@ func TestNotifier(t *testing.T) {
 var _ = Describe("notifier", func() {
 	var ctx context.Context
 	var ag *appglobals.AppGlobals
+	var fs *fakefeedstorage.FakeFeedStorage
 	var webhookSrv *ghttp.Server
 
 	BeforeEach(func() {
@@ -37,6 +39,7 @@ var _ = Describe("notifier", func() {
 		ag = fp.Must(appglobals.New(ctx, fp.Must(config.LoadConfig())))
 		Expect(TruncateLocal(ctx, ag.DB)).To(Succeed())
 		webhookSrv = ghttp.NewServer()
+		fs = fakefeedstorage.New()
 	})
 
 	AfterEach(func() {
@@ -57,6 +60,7 @@ var _ = Describe("notifier", func() {
 			for i := 0; i < 125; i++ {
 				u := "https://notifiertest.localhost/feed-" + strconv.Itoa(i)
 				Expect(db.New(ag.DB).CommitFeed(ctx,
+					fs,
 					feed.New(
 						fp.Must(url.Parse(u)),
 						make(map[string]string),
@@ -67,6 +71,7 @@ var _ = Describe("notifier", func() {
 			}
 			// Webhook is not pending, so this gets no http handler
 			Expect(db.New(ag.DB).CommitFeed(ctx,
+				fs,
 				feed.New(
 					fp.Must(url.Parse("https://notifiertest.localhost/feed-10000")),
 					make(map[string]string),
@@ -111,6 +116,7 @@ var _ = Describe("notifier", func() {
 		It("errors if the webhook call fails", func() {
 			ag.Config.WebhookUrl = webhookSrv.URL() + "/wh"
 			Expect(db.New(ag.DB).CommitFeed(ctx,
+				fs,
 				feed.New(
 					fp.Must(url.Parse("https://notifiertest.localhost/feed")),
 					make(map[string]string),
@@ -138,6 +144,7 @@ var _ = Describe("notifier", func() {
 			ag.Config.WebhookUrl = webhookSrv.URL() + "/wh"
 			ag.Config.ApiKey = "sekret"
 			Expect(db.New(ag.DB).CommitFeed(ctx,
+				fs,
 				feed.New(
 					fp.Must(url.Parse("https://notifiertest.localhost/feed")),
 					make(map[string]string),

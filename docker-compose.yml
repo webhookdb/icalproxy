@@ -23,5 +23,14 @@ services:
       - db
     ports:
       - "127.0.0.1:18042:5432"
+  localstack:
+    image: localstack/localstack:4.1
+    environment:
+      - SERVICES=s3
+      - HOSTNAME_EXTERNAL=localhost
+      - DEBUG=1
+    ports:
+      - "127.0.0.1:18043:4566"
+
 networks:
   ical-proxy:

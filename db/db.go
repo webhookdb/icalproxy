@@ -6,6 +6,7 @@ import (
 	"errors"
 	"github.com/jackc/pgx/v5"
 	"github.com/webhookdb/icalproxy/feed"
+	"github.com/webhookdb/icalproxy/feedstorage"
 	"github.com/webhookdb/icalproxy/internal"
 	"github.com/webhookdb/icalproxy/pgxt"
 	"github.com/webhookdb/icalproxy/types"
@@ -61,23 +62,12 @@ CREATE INDEX IF NOT EXISTS icalproxy_feeds_v1_url_host_rev_idx ON icalproxy_feed
 CREATE INDEX IF NOT EXISTS icalproxy_feeds_v1_checked_at_idx ON icalproxy_feeds_v1(checked_at);
 -- Use partial index, we only need to check where something is pending, never where it's not.
 CREATE INDEX IF NOT EXISTS icalproxy_feeds_v1_webhook_pending_idx ON icalproxy_feeds_v1((1)) WHERE webhook_pending;
-
--- Keep the feed contents in a different table, since they can be very large.
--- This avoids loading gigabytes of data if you want to do a select *, can speed up updates, etc.
-CREATE TABLE IF NOT EXISTS icalproxy_feed_contents_v1 (
-  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  feed_id BIGINT UNIQUE NOT NULL,
-   CONSTRAINT feed_id_fk
-       FOREIGN KEY (feed_id) REFERENCES icalproxy_feeds_v1(id) ON DELETE CASCADE,
-	 contents BYTEA
-);
-CREATE INDEX IF NOT EXISTS icalproxy_feed_contents_v1_feed_id_idx ON icalproxy_feed_contents_v1(feed_id);
 `
 	return db.exec(ctx, q)
 }
 
 func (db *DB) Reset(ctx context.Context) error {
-	const q = `DROP TABLE IF EXISTS icalproxy_feed_contents_v1; DROP TABLE IF EXISTS icalproxy_feeds_v1;`
+	const q = `DROP TABLE IF EXISTS icalproxy_feeds_v1;`
 	return db.exec(ctx, q)
 }
 
@@ -100,21 +90,28 @@ func (db *DB) FetchFeedRow(ctx context.Context, uri *url.URL) (*FeedRow, error) 
 	return &r, nil
 }
 
-func (db *DB) FetchContentsAsFeed(ctx context.Context, uri *url.URL) (*feed.Feed, error) {
+func (db *DB) FetchContentsAsFeed(ctx context.Context, feedStorage feedstorage.Interface, uri *url.URL) (*feed.Feed, error) {
 	r := feed.Feed{}
 	var fetchHeaders json.RawMessage
 	// Having now row in the contents table is fine, since we may have committed an error feed
 	// as an initial version, which will not have contents.
+	var feedId int64
 	const q = `SELECT
-	fetch_headers, fetch_status, checked_at, contents_md5, (CASE WHEN fetch_status >= 400 THEN fetch_error_body ELSE contents END)
+	id, fetch_headers, fetch_status, checked_at, contents_md5, (CASE WHEN fetch_status >= 400 THEN fetch_error_body ELSE NULL END)
 FROM icalproxy_feeds_v1
-LEFT JOIN icalproxy_feed_contents_v1 ON feed_id = icalproxy_feeds_v1.id
 WHERE url = $1`
 	err := db.conn.QueryRow(ctx, q, uri.String()).Scan(
-		&fetchHeaders, &r.HttpStatus, &r.FetchedAt, &r.MD5, &r.Body,
+		&feedId, &fetchHeaders, &r.HttpStatus, &r.FetchedAt, &r.MD5, &r.Body,
 	)
 	if err != nil {
-		return nil, internal.ErrWrap(err, "fetching row contents")
+		return nil, internal.ErrWrap(err, "fetching row")
+	}
+	if r.HttpStatus < 400 {
+		if b, err := feedStorage.Fetch(ctx, feedId); err != nil {
+			return nil, internal.ErrWrap(err, "fetching row from storage")
+		} else {
+			r.Body = b
+		}
 	}
 	if err := json.Unmarshal(fetchHeaders, &r.HttpHeaders); err != nil {
 		return nil, internal.ErrWrap(err, "unmarshaling db headers")
@@ -133,7 +130,7 @@ type CommitFeedOptions struct {
 	WebhookPendingOnInsert bool
 }
 
-func (db *DB) CommitFeed(ctx context.Context, feed *feed.Feed, opts *CommitFeedOptions) error {
+func (db *DB) CommitFeed(ctx context.Context, feedStorage feedstorage.Interface, feed *feed.Feed, opts *CommitFeedOptions) error {
 	if opts == nil {
 		opts = &CommitFeedOptions{}
 	}
@@ -200,11 +197,8 @@ RETURNING id`
 	if err := db.conn.QueryRow(ctx, feedQuery, feedArgs...).Scan(&insertedId); err != nil {
 		return internal.ErrWrap(err, "unable to upsert feed")
 	}
-	const contentsQuery = `INSERT INTO icalproxy_feed_contents_v1
-(feed_id, contents)
-VALUES ($1, $2)
-ON CONFLICT (feed_id) DO UPDATE SET contents = EXCLUDED.contents`
-	if err := db.exec(ctx, contentsQuery, insertedId, feed.Body); err != nil {
+
+	if err := feedStorage.Store(ctx, insertedId, feed.Body); err != nil {
 		return internal.ErrWrap(err, "unable to upsert contents")
 	}
 	return nil

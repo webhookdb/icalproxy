@@ -153,7 +153,7 @@ var _ = Describe("server", func() {
 		})
 		Describe("with a cached feed", func() {
 			BeforeEach(func() {
-				Expect(db.New(ag.DB).CommitFeed(ctx, feed.New(
+				Expect(db.New(ag.DB).CommitFeed(ctx, ag.FeedStorage, feed.New(
 					originFeedUri,
 					make(map[string]string),
 					200,
@@ -191,7 +191,7 @@ var _ = Describe("server", func() {
 				Expect(rr).To(HaveResponseCode(200))
 			})
 			It("fetches from origin and serves from cache if the TTL has expired", func() {
-				Expect(db.New(ag.DB).CommitFeed(ctx, feed.New(
+				Expect(db.New(ag.DB).CommitFeed(ctx, ag.FeedStorage, feed.New(
 					originFeedUri,
 					make(map[string]string),
 					200,
@@ -226,7 +226,7 @@ var _ = Describe("server", func() {
 				Expect(rr.Body.String()).To(Equal("FETCHED"))
 			})
 			It("returns the origin error if the cached feed was an error", func() {
-				Expect(db.New(ag.DB).CommitFeed(ctx, feed.New(
+				Expect(db.New(ag.DB).CommitFeed(ctx, ag.FeedStorage, feed.New(
 					originFeedUri,
 					map[string]string{"Content-Type": "application/custom"},
 					403,
@@ -243,7 +243,7 @@ var _ = Describe("server", func() {
 				))
 			})
 			It("returns the cached feed if there was an expired TTL but the origin returned NotModified on fetch", func() {
-				Expect(db.New(ag.DB).CommitFeed(ctx, feed.New(
+				Expect(db.New(ag.DB).CommitFeed(ctx, ag.FeedStorage, feed.New(
 					originFeedUri,
 					make(map[string]string),
 					200,

@@ -46,10 +46,23 @@ type Config struct {
 	// use this timeout. Generally this should be a touch less than the load balancer timeout.
 	// We want to avoid load balancer timeouts since they indicate operations issues,
 	// whereas a timeout here is an origin issue.
-	RequestMaxTimeout int    `env:"REQUEST_MAX_TIMEOUT, default=25"`
-	SentryDSN         string `env:"SENTRY_DSN"`
-	WebhookPageSize   int    `env:"WEBHOOK_PAGE_SIZE, default=100"`
-	WebhookUrl        string `env:"WEBHOOK_URL"`
+	RequestMaxTimeout int `env:"REQUEST_MAX_TIMEOUT, default=25"`
+	// AWS or similar access key (Cloudflare R2, etc).
+	// If empty, use the default AWS config loading behavior.
+	S3AccessKeyId string `env:"S3_ACCESS_KEY_ID, default=testkey"`
+	// AWS or similar secret (R2, etc).
+	S3AccessKeySecret string `env:"S3_ACCESS_KEY_SECRET, default=testsecret"`
+	// Bucket to store feeds.
+	S3Bucket string `env:"S3_BUCKET, default=icalproxy-feeds"`
+	// Endpoint to reach S3, R2, etc.
+	// Only set if not empty (so it can be empty for S3, for example).
+	// If using Cloudflare R2, set to https://<account id>.r2.cloudflarestorage.com
+	S3Endpoint string `env:"S3_ENDPOINT, default=http://localhost:18043"`
+	// Key prefix to store feed files under.
+	S3Prefix        string `env:"S3_PREFIX, default=icalproxy/feeds"`
+	SentryDSN       string `env:"SENTRY_DSN"`
+	WebhookPageSize int    `env:"WEBHOOK_PAGE_SIZE, default=100"`
+	WebhookUrl      string `env:"WEBHOOK_URL"`
 }
 
 func (c Config) NewLogger(fields ...any) (*slog.Logger, error) {

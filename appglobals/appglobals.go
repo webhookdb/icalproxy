@@ -7,12 +7,14 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/lithictech/go-aperitif/v2/logctx"
 	"github.com/webhookdb/icalproxy/config"
+	"github.com/webhookdb/icalproxy/feedstorage"
 	"github.com/webhookdb/icalproxy/pgxt"
 )
 
 type AppGlobals struct {
-	Config config.Config
-	DB     *pgxpool.Pool
+	Config      config.Config
+	DB          *pgxpool.Pool
+	FeedStorage *feedstorage.Storage
 }
 
 func New(ctx context.Context, cfg config.Config) (ac *AppGlobals, err error) {
@@ -33,6 +35,9 @@ func New(ctx context.Context, cfg config.Config) (ac *AppGlobals, err error) {
 			p.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
 		}
 	}); err != nil {
+		return
+	}
+	if ac.FeedStorage, err = feedstorage.New(ctx, cfg); err != nil {
 		return
 	}
 	return
