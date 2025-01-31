@@ -15,6 +15,7 @@ import (
 	"github.com/webhookdb/icalproxy/config"
 	"github.com/webhookdb/icalproxy/db"
 	"github.com/webhookdb/icalproxy/feed"
+	"github.com/webhookdb/icalproxy/feedstorage/fakefeedstorage"
 	"github.com/webhookdb/icalproxy/fp"
 	"github.com/webhookdb/icalproxy/icalproxytest"
 	"github.com/webhookdb/icalproxy/server"
@@ -150,6 +151,31 @@ var _ = Describe("server", func() {
 				HaveKeyWithValue("Content-Type", "application/custom"),
 				HaveKeyWithValue("Ical-Proxy-Origin-Error", "403"),
 			))
+		})
+		Describe("with a feed in the database but not in storage", func() {
+			It("fetches from origin and serves there was no stored body", func() {
+				fs := fakefeedstorage.New()
+				ag.FeedStorage = fs
+				Expect(db.New(ag.DB).CommitFeed(ctx, ag.FeedStorage, feed.New(
+					originFeedUri,
+					make(map[string]string),
+					200,
+					[]byte("VEVENT"),
+					time.Now(),
+				), nil)).To(Succeed())
+				fs.Files = make(map[int64][]byte)
+				origin.AppendHandlers(
+					ghttp.CombineHandlers(
+						ghttp.VerifyRequest("GET", "/feed.ics", ""),
+						ghttp.RespondWith(200, "FETCHED"),
+					),
+				)
+				req := NewRequest("GET", serverRequestUrl, nil)
+				rr := Serve(e, req)
+				Expect(rr).To(HaveResponseCode(200))
+				Expect(rr.Body.String()).To(Equal("FETCHED"))
+			})
+
 		})
 		Describe("with a cached feed", func() {
 			BeforeEach(func() {

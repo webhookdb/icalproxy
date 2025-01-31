@@ -14,7 +14,7 @@ import (
 type AppGlobals struct {
 	Config      config.Config
 	DB          *pgxpool.Pool
-	FeedStorage *feedstorage.Storage
+	FeedStorage feedstorage.Interface
 }
 
 func New(ctx context.Context, cfg config.Config) (ac *AppGlobals, err error) {

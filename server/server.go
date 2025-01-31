@@ -145,6 +145,10 @@ func (h *endpointHandler) serveIfTtl(ctx context.Context) (bool, error) {
 		if err != nil {
 			return false, ErrFallback
 		}
+		if fd.Body == nil {
+			// Assume the contents weren't in the database/storage, so need to be refetched and stored.
+			return false, nil
+		}
 		h.c.Response().Header().Set("Ical-Proxy-Cached", "true")
 		return true, h.serveResponse(ctx, fd)
 	}
