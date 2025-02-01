@@ -41,6 +41,12 @@ func New(ctx context.Context, cfg config.Config) (*Storage, error) {
 		o.UsePathStyle = true // Needed for localstack
 		if cfg.S3Endpoint != "" {
 			o.BaseEndpoint = aws.String(cfg.S3Endpoint)
+			// If we are using an explicit URL, assume it may not implement all the S3 security policies,
+			// like https://github.com/aws/aws-sdk-js-v3/issues/6810 talks about.
+			// In particular, R2 does not support checksums:
+			// https://community.centminmod.com/threads/aws-s3-sdk-compatibility-inconsistencies-with-r2.27255/
+			// We can make this configurable in the future if needed.
+			o.ResponseChecksumValidation = aws.ResponseChecksumValidationWhenRequired
 		}
 	})
 	return &Storage{s3Client: client, bucket: &cfg.S3Bucket, prefix: cfg.S3Prefix}, nil
