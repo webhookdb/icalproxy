@@ -6,6 +6,7 @@ import (
 	"fmt"
 	sentryecho "github.com/getsentry/sentry-go/echo"
 	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v4/middleware"
 	"github.com/lithictech/go-aperitif/v2/api"
 	"github.com/lithictech/go-aperitif/v2/logctx"
 	"github.com/urfave/cli/v2"
@@ -67,6 +68,9 @@ var serverCmd = &cli.Command{
 		})
 		e.Use(sentryecho.New(sentryecho.Options{
 			Repanic: true,
+		}))
+		e.Use(middleware.TimeoutWithConfig(middleware.TimeoutConfig{
+			Timeout: time.Duration(appGlobals.Config.HttpRequestTimeout) * time.Second,
 		}))
 
 		if err := server.Register(ctx, e, appGlobals); err != nil {

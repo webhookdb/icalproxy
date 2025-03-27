@@ -24,10 +24,13 @@ type Config struct {
 	DatabaseUrl               string `env:"DATABASE_URL, default=postgres://ical:ical@localhost:18042/ical?sslmode=disable"`
 	DatabaseConnectionPoolUrl string `env:"DATABASE_CONNECTION_POOL_URL"`
 	Debug                     bool   `env:"DEBUG"`
-	LogFile                   string `env:"LOG_FILE"`
-	LogFormat                 string `env:"LOG_FORMAT"`
-	LogLevel                  string `env:"LOG_LEVEL, default=info"`
-	Port                      int    `env:"PORT, default=18041"`
+	// The HTTP request timeout, to avoid hung goroutines.
+	// 0 is no timeout. If Heroku is detected and 0 is set, use 27s.
+	HttpRequestTimeout int    `env:"HTTP_REQUEST_TIMEOUT, default=0"`
+	LogFile            string `env:"LOG_FILE"`
+	LogFormat          string `env:"LOG_FORMAT"`
+	LogLevel           string `env:"LOG_LEVEL, default=info"`
+	Port               int    `env:"PORT, default=18041"`
 	// Parsed from ICAL_TTL_ vars.
 	// See README for details.
 	IcalTTLMap map[types.NormalizedHostname]types.TTL
@@ -82,12 +85,26 @@ func LoadConfig() (Config, error) {
 	if strings.HasPrefix(cfg.DatabaseUrl, "postgres://ical:ical@localhost:18042/ical") && cfg.DatabaseConnectionPoolUrl == "" {
 		cfg.DatabaseConnectionPoolUrl = cfg.DatabaseUrl
 	}
+	cfg.HttpRequestTimeout = calculateHttpRequestTimeout(cfg)
 	if m, err := BuildTTLMap(os.Environ()); err != nil {
 		return cfg, err
 	} else {
 		cfg.IcalTTLMap = m
 	}
 	return cfg, nil
+}
+
+func calculateHttpRequestTimeout(cfg Config) int {
+	if cfg.HttpRequestTimeout != 0 {
+		// Non-default, use what's configured.
+		return cfg.HttpRequestTimeout
+	}
+	if os.Getenv("DYNO") != "" {
+		// Heroku, use a default a few seconds under the 30s platform limit
+		return 27
+	}
+	// Return 0, which is no timeout.
+	return 0
 }
 
 func BuildTTLMap(environ []string) (map[types.NormalizedHostname]types.TTL, error) {
