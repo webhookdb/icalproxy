@@ -155,7 +155,11 @@ func (r *Refresher) processUrl(ctx context.Context, tx pgx.Tx, txMux *sync.Mutex
 		return internal.ErrWrap(err, "url parsed failed, should not have been stored")
 	}
 	start := time.Now()
-	reqctx, cancel := context.WithTimeout(ctx, time.Duration(r.ag.Config.RefreshTimeout)*time.Second)
+	reqctx, cancel := context.WithTimeoutCause(
+		ctx,
+		time.Duration(r.ag.Config.RefreshTimeout)*time.Second,
+		errors.New("processUrl timeout"),
+	)
 	defer cancel()
 	fd, err := feed.Fetch(reqctx, uri, rtp.FetchHeaders)
 	notModified := errors.Is(err, feed.ErrNotModified)

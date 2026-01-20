@@ -159,7 +159,11 @@ func (h *endpointHandler) refetchAndCommit(ctx context.Context) (*feed.Feed, err
 	// This codepath should be relatively rare; it means the refresher isn't keeping feeds up to date
 	// as soon as their TTL expires.
 	logctx.Logger(ctx).Info("refetching feed")
-	timeoutctx, cancel := context.WithTimeout(ctx, time.Duration(h.ag.Config.RequestTimeout)*time.Second)
+	timeoutctx, cancel := context.WithTimeoutCause(
+		ctx,
+		time.Duration(h.ag.Config.RequestTimeout)*time.Second,
+		errors.New("refetch feed timeout"),
+	)
 	defer cancel()
 	var previousHeaders feed.HeaderMap
 	if h.row != nil {
@@ -226,7 +230,11 @@ func (h *endpointHandler) runAsProxy(ctx context.Context) error {
 	if err := h.extractUrl(); err != nil {
 		return err
 	}
-	timeoutCtx, cancel := context.WithTimeout(ctx, time.Duration(h.ag.Config.RequestMaxTimeout)*time.Second)
+	timeoutCtx, cancel := context.WithTimeoutCause(
+		ctx,
+		time.Duration(h.ag.Config.RequestMaxTimeout)*time.Second,
+		errors.New("proxy request timeout"),
+	)
 	defer cancel()
 	resp, err := feed.Fetch(timeoutCtx, h.url, nil)
 	if err != nil {
